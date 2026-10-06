@@ -1,0 +1,9 @@
+# never commit live secrets or local state
+*.bak*
+*.gz
+*.lock
+*.log
+__pycache__/
+config.json
+htpc-credentials.txt
+remote-users.json

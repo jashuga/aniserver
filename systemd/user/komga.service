@@ -1,0 +1,12 @@
+[Unit]
+Description=Komga manga server (library + offline sync for Komelia)
+After=network-online.target
+
+[Service]
+Environment=KOMGA_CONFIGDIR=%h/.komga
+ExecStart=%h/.local/opt/jre21/bin/java -Xmx1g -jar %h/.local/opt/komga/komga.jar
+Restart=on-failure
+Nice=5
+
+[Install]
+WantedBy=default.target

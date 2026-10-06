@@ -1,0 +1,7 @@
+[Unit]
+Description=Rescan Komga when new manga files arrive
+
+[Service]
+Type=oneshot
+Nice=10
+ExecStart=%h/.local/bin/manga-rescan

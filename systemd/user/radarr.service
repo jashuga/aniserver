@@ -1,0 +1,12 @@
+[Unit]
+Description=Radarr (anime movies)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/opt/Radarr/Radarr -nobrowser -data=%h/.config/Radarr
+Restart=on-failure
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

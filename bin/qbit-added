@@ -1,0 +1,4 @@
+#!/bin/sh
+# qBittorrent "run on torrent added": $1 = category, $2 = info hash
+[ "$1" = "manga" ] && curl -s -X POST http://localhost:8090/api/v2/torrents/topPrio -d "hashes=$2" >/dev/null
+exit 0

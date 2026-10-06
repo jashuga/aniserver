@@ -1,0 +1,12 @@
+[Unit]
+Description=Suwayomi manga server (auto-downloads chapters)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/.local/opt/suwayomi
+Environment=LD_PRELOAD=%h/.local/opt/suwayomi/bin/catch_abort.so
+ExecStart=%h/.local/opt/suwayomi/jre/bin/java -Xmx768m -Dsuwayomi.tachidesk.config.server.systemTrayEnabled=false -Dsuwayomi.tachidesk.config.server.initialOpenInBrowserEnabled=false -jar bin/Suwayomi-Server.jar
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

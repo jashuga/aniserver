@@ -1,0 +1,11 @@
+[Unit]
+Description=Jellyfin media server (stream the anime library to PCs/phones)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/opt/jellyfin/jellyfin --datadir %h/.local/share/jellyfin --configdir %h/.config/jellyfin --cachedir %h/.cache/jellyfin --logdir %h/.local/share/jellyfin/log --ffmpeg %h/.local/opt/jellyfin-ffmpeg/ffmpeg
+Restart=on-failure
+Nice=5
+
+[Install]
+WantedBy=default.target

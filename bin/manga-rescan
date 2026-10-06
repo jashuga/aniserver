@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Ask Komga to rescan a manga library when finished .cbz/.cbr/.pdf/.epub files appeared since the last run.
+Files modified in the last 30 s are ignored (still being written)."""
+import base64, json, time, urllib.request
+from pathlib import Path
+
+H = Path.home()
+c = json.loads((H / ".config/manga-request/config.json").read_text())
+auth = "Basic " + base64.b64encode(f"{c['komga_user']}:{c['komga_password']}".encode()).decode()
+stamp = H / ".cache/manga-rescan.stamp"
+last = stamp.stat().st_mtime if stamp.exists() else 0
+now = time.time()
+EXT = {".cbz", ".cbr", ".zip", ".pdf", ".epub"}
+
+def changed(root):
+    for f in Path(root).rglob("*"):
+        if f.suffix.lower() in EXT:
+            m = f.stat().st_mtime
+            if last < m <= now - 30:
+                return True
+    return False
+
+req = urllib.request.Request("http://localhost:25600/api/v1/libraries", headers={"Authorization": auth})
+for lib in json.load(urllib.request.urlopen(req, timeout=30)):
+    if changed(lib["root"]):
+        urllib.request.urlopen(urllib.request.Request(f"http://localhost:25600/api/v1/libraries/{lib['id']}/scan",
+                                                      method="POST", headers={"Authorization": auth}), timeout=30)
+stamp.parent.mkdir(parents=True, exist_ok=True)
+stamp.touch(); import os; os.utime(stamp, (now - 30, now - 30))

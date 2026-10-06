@@ -1,0 +1,8 @@
+[Unit]
+Description=HTPC safety net: shows/movies that should be downloading but aren't
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/htpc-watchdog
+Nice=10

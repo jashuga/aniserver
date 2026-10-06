@@ -1,0 +1,9 @@
+[Unit]
+Description=Check the home internet address every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

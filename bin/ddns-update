@@ -1,0 +1,27 @@
+#!/bin/sh
+# Keeps the public names (Namecheap dynamic DNS) pointed at the home internet address.
+# Runs every 5 minutes (ddns-update.timer) but only contacts Namecheap when the address changed, or twice a day anyway.
+# ~/.config/ddns-update-urls: one update URL per line.
+state="$HOME/.cache/htpc/ddns-last"
+ip=$(curl -s --max-time 10 https://1.1.1.1/cdn-cgi/trace | sed -n 's/^ip=//p')
+[ -n "$ip" ] || exit 0                                   # offline right now: try again next run
+now=$(date +%s)
+if [ -f "$state" ]; then
+  read -r last_ip last_time < "$state"
+  [ "$ip" = "$last_ip" ] && [ $((now - last_time)) -lt 43200 ] && exit 0
+fi
+fail=0
+while IFS= read -r url; do
+  case "$url" in ""|\#*) continue ;; esac
+  r=$(curl -s --max-time 20 "$url")
+  case "$r" in
+    *"<ErrCount>0</ErrCount>"*) ;;
+    *) fail=1; echo "ddns update failed: $(echo "$r" | tr -d '\n' | head -c 300)" >&2 ;;
+  esac
+done < "$HOME/.config/ddns-update-urls"
+if [ $fail = 0 ]; then
+  mkdir -p "$(dirname "$state")"
+  echo "$ip $now" > "$state"
+  echo "pointed the DNS names at $ip"
+fi
+exit $fail

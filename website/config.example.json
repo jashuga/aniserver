@@ -1,0 +1,16 @@
+{
+  "port": 5050,
+  "password": "home-network login password",
+  "secret": "long random string (signs cookies, links and stream tokens)",
+  "public_host": "tv.example.com",
+  "watch_host": "watch.example.com",
+  "profiles": {"alice": ["Alice", "#ff7a1a"], "bob": ["Bob", "#4f8cff"]},
+  "tv_profile": "alice",
+  "prowlarr_key": "Prowlarr API key",
+  "indexer_id": 0,
+  "jellyfin_key": "Jellyfin API key (Dashboard > API Keys)",
+  "kodi_password": "Kodi web server password (user kodi)",
+  "komga_user": "admin@example.com",
+  "komga_password": "Komga admin password",
+  "reserved_passwords": ["passwords of local services that must not be reused for internet logins"]
+}

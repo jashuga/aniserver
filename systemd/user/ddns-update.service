@@ -1,0 +1,7 @@
+[Unit]
+Description=Point the public names at the home internet address (Namecheap dynamic DNS)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/ddns-update

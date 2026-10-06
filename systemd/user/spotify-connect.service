@@ -1,0 +1,12 @@
+[Unit]
+Description=Spotify Connect speaker "HTPC" (go-librespot)
+After=pipewire-pulse.service network-online.target
+Wants=pipewire-pulse.service
+
+[Service]
+ExecStart=%h/.local/opt/go-librespot/go-librespot
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

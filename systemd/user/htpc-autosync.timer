@@ -1,0 +1,9 @@
+[Unit]
+Description=Sync HTPC files to GitHub every 10 minutes (when something changed)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

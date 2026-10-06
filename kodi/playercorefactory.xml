@@ -1,0 +1,14 @@
+<playercorefactory>
+  <players>
+    <player name="mpv" type="ExternalPlayer" audio="false" video="true">
+      <filename>/usr/bin/mpv</filename>
+      <args>"{1}" --fs</args>
+      <hidexbmc>true</hidexbmc>
+      <hideconsole>true</hideconsole>
+      <playcountminimumtime>1200</playcountminimumtime>
+    </player>
+  </players>
+  <rules action="prepend">
+    <rule filetypes="*" filename="*" player="mpv"/>
+  </rules>
+</playercorefactory>

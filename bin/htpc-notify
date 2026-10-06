@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Sonarr 'On Import Complete' / Radarr 'On Import' hook: one phone push (ntfy) per finished download,
+e.g. "Re:ZERO · 11 episodes ready (S04E01–S04E11)", tapping it opens the episode in Jellyfin, with buttons
+▶ Watch and 📺 Play on TV (signed links to the public website, so they work from anywhere without logging in)."""
+import importlib.util
+import json
+import os
+import re
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+spec = importlib.util.spec_from_file_location("htpc", HOME / ".local/opt/manga-request/app.py")
+app = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(app)                     # reuses the website's config + link signing (server doesn't start)
+TOPIC = (HOME / ".config/htpc-ntfy-topic").read_text().strip()
+PUBLIC = f"https://{app.CONF['public_host']}"
+LOG = HOME / ".local/share/htpc-web/notify.log"
+env = os.environ
+
+
+def log(msg):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+
+
+def push(title, message, path=None, tags=("tv",), priority=3):
+    body = {"topic": TOPIC, "title": title, "message": message, "tags": list(tags), "priority": priority}
+    if path:
+        q = app.signed_qs(path)
+        body["click"] = f"{PUBLIC}/go?{q}"
+        body["actions"] = [{"action": "view", "label": "▶ Watch", "url": f"{PUBLIC}/go?{q}"},
+                           {"action": "http", "label": "📺 Play on TV", "url": f"{PUBLIC}/api/tvplay?{q}",
+                            "method": "POST", "clear": True}]
+    req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=20).read()
+    log(f"sent: {title} | {message}")
+
+
+def ep_label(season, episode):
+    return f"S{int(season):02d}E{int(episode):02d}"
+
+
+def sonarr_episodes():
+    """[(label, title, path)] imported by this download, oldest episode first."""
+    out = []
+    dl = env.get("sonarr_download_id")
+    if dl:
+        recs = app.sonarr("GET", "/history?" + urllib.parse.urlencode(
+            {"downloadId": dl, "pageSize": 200, "includeEpisode": "true", "eventType": 3}))["records"]
+        for r in recs:
+            e, path = r.get("episode") or {}, (r.get("data") or {}).get("importedPath")
+            if e and path:
+                out.append((ep_label(e["seasonNumber"], e["episodeNumber"]), e.get("title") or "", path))
+    if not out:   # fallback: whatever the event itself carries
+        paths = [p for p in re.split(r"\|", env.get("sonarr_episodefile_paths") or env.get("sonarr_episodefile_path") or "") if p]
+        for p in paths:
+            m = re.search(r"S(\d+)E(\d+)", os.path.basename(p))
+            out.append((ep_label(*m.groups()) if m else os.path.basename(p), "", p))
+    return sorted(set(out), key=lambda x: x[0])
+
+
+def main():
+    log("event: " + json.dumps({k: v for k, v in env.items() if k.startswith(("sonarr_", "radarr_")) and "path" not in k}))
+    if "sonarr_eventtype" in env:
+        ev = env["sonarr_eventtype"]
+        if ev == "Test":
+            return push("HTPC notifications", "Sonarr is connected. You'll get one message per finished download.", tags=("white_check_mark",))
+        if ev not in ("Download", "ImportComplete"):
+            return
+        show = env.get("sonarr_series_title", "A show")
+        eps = sonarr_episodes()
+        if not eps:
+            return push(f"{show}", "New episodes are ready to watch.")
+        upgrade = env.get("sonarr_isupgrade", "").lower() == "true"
+        if len(eps) == 1:
+            label, title, path = eps[0]
+            head = f"{show} · {label} {'was upgraded' if upgrade else 'is ready'}"
+            msg = title or "Ready to watch"
+        else:
+            head = f"{show} · {len(eps)} episodes {'upgraded' if upgrade else 'ready'}"
+            msg = f"{eps[0][0]}–{eps[-1][0]}"
+        return push(head, msg, path=eps[0][2], tags=("tv",), priority=2 if upgrade else 3)
+    if "radarr_eventtype" in env:
+        ev = env["radarr_eventtype"]
+        if ev == "Test":
+            return push("HTPC notifications", "Radarr is connected.", tags=("white_check_mark",))
+        if ev != "Download":
+            return
+        title = f"{env.get('radarr_movie_title', 'A movie')} ({env.get('radarr_movie_year', '')})".replace(" ()", "")
+        upgrade = env.get("radarr_isupgrade", "").lower() == "true"
+        return push(f"{title} {'was upgraded' if upgrade else 'is ready'}", "Movie night?", path=env.get("radarr_moviefile_path"),
+                    tags=("clapper",), priority=2 if upgrade else 3)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:      # never fail the import in Sonarr/Radarr because of a notification
+        log(f"error: {e!r}")
+    sys.exit(0)

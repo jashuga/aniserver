@@ -1,0 +1,16 @@
+[Unit]
+Description=Kodi (HTPC front end), restarted automatically if it crashes
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+# PulseAudio output mode (via pipewire-pulse): Kodi 21's native PipeWire output crashed while listing audio devices
+Environment=KODI_AE_SINK=PULSE
+# start a few seconds after login so Kodi ends up in front of Spotify
+ExecStartPre=/bin/sleep 8
+ExecStart=/usr/bin/kodi
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

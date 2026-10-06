@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://schemas.recyclarr.dev/v8/config-schema.json
+# TRaSH Guides [Anime] Remux-1080p profile for Sonarr. Synced daily by recyclarr-sync.timer.
+sonarr:
+  anime:
+    base_url: http://localhost:8989
+    api_key: YOUR_API_KEY
+
+    quality_definition:
+      type: anime
+
+    quality_profiles:
+      - trash_id: 20e0fc959f1f1704bed501f23bdae76f  # [Anime] Remux-1080p
+        # stop upgrading once a top-tier Blu-ray release (BD Tier 01-05, score >= 1000) is grabbed;
+        # prevents grabbing a second, slightly-higher-scored copy (e.g. encode + remux of the same show)
+        upgrade:
+          allowed: true
+          until_score: 1000
+        reset_unmatched_scores:
+          enabled: true
+
+    custom_format_groups:
+      add:
+        - trash_id: f54985e5e96747cef58731f1cf4c9181  # [Streaming Services] Anime
+
+radarr:
+  anime-movies:
+    base_url: http://localhost:7878
+    api_key: YOUR_API_KEY
+
+    quality_definition:
+      type: anime
+
+    quality_profiles:
+      - trash_id: 722b624f9af1e492284c4bc842153a38  # [Anime] Remux-1080p
+        reset_unmatched_scores:
+          enabled: true
+        # same as the shows: stop upgrading once a top-tier Blu-ray release (score >= 1000) is grabbed
+        upgrade:
+          allowed: true
+          until_score: 1000

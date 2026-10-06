@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Safety net (systemd htpc-watchdog.timer, every 15 minutes):
+- Services: Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin and the website must answer. User services that don't are
+  restarted right away; anything still down after 20 minutes gets one phone alert with the command that fixes it.
+- A show with nothing monitored and nothing downloaded is switched back on to follow new episodes, with a phone alert
+  (that's how the Steel Ball Run season-numbering bug looked).
+- Aired episodes / released movies still missing after 6 hours are searched again (at most every 12 hours each).
+- Still missing 2 days after airing (3 days for movies): one phone alert per episode/movie.
+- A finished download Sonarr/Radarr can't import (stuck in their queue for an hour+): removed and blocklisted when
+  everything it was for is already in the library (e.g. an extra Blu-ray volume Sonarr took for a whole season),
+  otherwise one phone alert.
+Usage: htpc-watchdog [--dry-run]"""
+import getpass
+import importlib.util
+import json
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+spec = importlib.util.spec_from_file_location("htpc", HOME / ".local/opt/manga-request/app.py")
+app = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(app)                     # reuses the website's Sonarr/Radarr helpers (server doesn't start)
+STATE = HOME / ".local/share/htpc-web/watchdog.json"
+LOG = HOME / ".local/share/htpc-web/watchdog.log"
+TOPIC = (HOME / ".config/htpc-ntfy-topic").read_text().strip()
+DRY = "--dry-run" in sys.argv
+HOUR = 3600
+USER = getpass.getuser()
+
+
+def log(msg, quiet=False):
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {'[dry-run] ' if DRY else ''}{msg}"
+    print(line)
+    if not DRY and not quiet:
+        with LOG.open("a") as f:
+            f.write(line + "\n")
+
+
+def web(url):
+    with urllib.request.urlopen(url, timeout=20) as r:
+        return r.read()
+
+
+SERVICES = [   # name, health probe, user service the watchdog may restart itself, command for the phone alert
+    ("Sonarr", lambda: app.sonarr("GET", "/system/status", timeout=20), None, "sudo systemctl restart sonarr"),
+    ("Radarr", lambda: app.radarr("GET", "/system/status", timeout=20), "radarr", "systemctl --user restart radarr"),
+    ("Prowlarr", lambda: app.prowlarr("GET", "/system/status", timeout=20), None, "sudo systemctl restart prowlarr"),
+    ("qBittorrent", lambda: app.qbit("/app/version", timeout=20), None, f"sudo systemctl restart qbittorrent-nox@{USER}"),
+    ("Jellyfin", lambda: web(app.JELLYFIN + "/health"), "jellyfin", "systemctl --user restart jellyfin"),
+    ("Website", lambda: web("http://127.0.0.1:5050/login"), "manga-request", "systemctl --user restart manga-request"),
+]
+
+
+def check_services(state, now):
+    down = state.setdefault("down", {})
+    for name, probe, unit, fix in SERVICES:
+        try:
+            probe()
+            if name in down:
+                log(f"{name} is answering again")
+                down.pop(name)
+                state["alerted"].pop(f"svc:{name}", None)
+            continue
+        except Exception as e:
+            first = down.setdefault(name, now)
+            log(f"{name} isn't answering: {e!r}")
+        if unit and now - state["searched"].get(f"restart:{name}", 0) > 30 * 60:
+            state["searched"][f"restart:{name}"] = now
+            log(f"restarting {name}")
+            if not DRY:
+                subprocess.run(["systemctl", "--user", "restart", unit], timeout=120)
+        if now - first >= 20 * 60 and f"svc:{name}" not in state["alerted"]:
+            state["alerted"][f"svc:{name}"] = now
+            push(f"{name} isn't responding", f"It has been down for {int((now - first) // 60)} minutes. Fix: ssh {USER}@{app.CONF.get('public_host') or 'this computer'} then run: {fix}")
+
+
+def push(title, message):
+    log(f"alert: {title} | {message}")
+    if DRY:
+        return
+    body = {"topic": TOPIC, "title": title, "message": message, "tags": ["warning"], "priority": 3,
+            "click": f"https://{app.CONF['public_host']}/shows"}
+    req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=20).read()
+
+
+def code(e):
+    return f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
+
+
+def check_shows(state, now):
+    queued = {r.get("episodeId") for r in app.sonarr("GET", "/queue?pageSize=1000")["records"]}
+    for s in app.sonarr("GET", "/series"):
+        eps = app.sonarr("GET", f"/episode?seriesId={s['id']}")
+        if eps and not any(e["monitored"] for e in eps) and not any(e["hasFile"] for e in eps):
+            key = f"off:{s['id']}"
+            log(f"{s['title']}: nothing monitored, nothing downloaded -> following new episodes")
+            if not DRY:
+                app.follow_new_episodes(s["id"])
+            if key not in state["alerted"]:
+                state["alerted"][key] = now
+                push(f"{s['title']} wasn't set to download anything",
+                     f"It now gets new episodes automatically. To get earlier episodes, add a season on {app.CONF.get('public_host') or 'the website'}.")
+            continue
+        missing = [e for e in eps if e["monitored"] and not e["hasFile"] and e["id"] not in queued
+                   and app.air_time(e) is not None and now - app.air_time(e) > 6 * HOUR]
+        due = [e for e in missing if now - state["searched"].get(str(e["id"]), 0) > 12 * HOUR]
+        if due:
+            seasons = sorted({e["seasonNumber"] for e in due})
+            log(f"{s['title']}: searching again for {', '.join(code(e) for e in due[:12])}{' …' if len(due) > 12 else ''}")
+            if not DRY:
+                if len(due) <= 8:
+                    app.sonarr("POST", "/command", {"name": "EpisodeSearch", "episodeIds": [e["id"] for e in due]})
+                else:      # a big backlog: season searches find season packs
+                    for n in seasons[:3]:
+                        app.sonarr("POST", "/command", {"name": "SeasonSearch", "seriesId": s["id"], "seasonNumber": n})
+            for e in due:
+                state["searched"][str(e["id"])] = now
+        overdue = [e for e in missing if now - app.air_time(e) > 48 * HOUR and f"ep:{e['id']}" not in state["alerted"]]
+        if overdue:
+            for e in overdue:
+                state["alerted"][f"ep:{e['id']}"] = now
+            days = int((now - app.air_time(overdue[-1])) // (24 * HOUR))
+            push(f"{s['title']}: no release found yet",
+                 f"{', '.join(code(e) for e in overdue[:6])}{' and more' if len(overdue) > 6 else ''} aired {days}+ days ago. "
+                 "Sonarr keeps checking; the episode may be named differently on Nyaa.")
+
+
+def check_movies(state, now):
+    queued = {r.get("movieId") for r in app.radarr("GET", "/queue?pageSize=1000")["records"]}
+    for m in app.radarr("GET", "/movie"):
+        if not m["monitored"] or m["hasFile"] or not m.get("isAvailable") or m["id"] in queued:
+            continue
+        if now - state["searched"].get(f"movie:{m['id']}", 0) > 24 * HOUR:
+            log(f"{m['title']}: released but not downloaded -> searching again")
+            if not DRY:
+                app.radarr("POST", "/command", {"name": "MoviesSearch", "movieIds": [m["id"]]})
+            state["searched"][f"movie:{m['id']}"] = now
+            state["searched"].setdefault(f"movie-since:{m['id']}", now)
+        if now - state["searched"].get(f"movie-since:{m['id']}", now) > 72 * HOUR and f"movie:{m['id']}" not in state["alerted"]:
+            state["alerted"][f"movie:{m['id']}"] = now
+            push(f"{m['title']}: no release found yet", "It's out, but no download has been found in 3 days. Radarr keeps checking.")
+
+
+def check_stuck_imports(state, now):
+    first = state.setdefault("stuck", {})
+    groups = {}
+    for arr, api, extra in (("Sonarr", app.sonarr, "includeSeries=true&includeEpisode=true"), ("Radarr", app.radarr, "includeMovie=true")):
+        for r in api("GET", f"/queue?pageSize=1000&{extra}")["records"]:
+            if r.get("trackedDownloadState") in app.STUCK_IMPORTS and r.get("downloadId"):
+                groups.setdefault((arr, r["downloadId"]), []).append(r)
+    for key in [k for k in first if tuple(k.split(":", 1)) not in groups]:
+        first.pop(key)                                  # resolved on its own (or by hand)
+    for (arr, dl), recs in groups.items():
+        key = f"{arr}:{dl}"
+        if now - first.setdefault(key, now) < HOUR:      # give Sonarr/Radarr a chance to finish by themselves
+            continue
+        r0 = recs[0]
+        if arr == "Sonarr":
+            title = (r0.get("series") or {}).get("title") or r0.get("title", "")
+            have_all = all((r.get("episode") or {}).get("hasFile") for r in recs)
+        else:
+            title = (r0.get("movie") or {}).get("title") or r0.get("title", "")
+            have_all = bool((r0.get("movie") or {}).get("hasFile"))
+        why = "; ".join(m for x in r0.get("statusMessages") or [] for m in x.get("messages") or [])[:220] or "import blocked"
+        if have_all:
+            log(f"{title}: removing a download {arr} couldn't import, everything it was for is already in the library "
+                f"({r0.get('title', '')[:90]}): {why}")
+            if not DRY:
+                api = app.sonarr if arr == "Sonarr" else app.radarr
+                api("DELETE", "/queue/bulk?removeFromClient=true&blocklist=true&skipRedownload=true", {"ids": [r["id"] for r in recs]})
+            first.pop(key)
+        elif f"stuck:{key}" not in state["alerted"]:
+            state["alerted"][f"stuck:{key}"] = now
+            push(f"{title}: a download finished but couldn't be added",
+                 f"{arr} says: {why}. Fix it in {arr} → Activity → Queue (import it by hand, or remove it so it searches again).")
+
+
+def main():
+    try:
+        state = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        state = {}
+    state.setdefault("searched", {})
+    state.setdefault("alerted", {})
+    now = time.time()
+    for check in (check_services, check_shows, check_movies, check_stuck_imports):
+        try:
+            check(state, now)
+        except Exception as e:      # one service being down shouldn't stop the other check
+            log(f"{check.__name__} failed: {e!r}")
+    if not DRY:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps(state))
+    log("check done", quiet=True)
+
+
+if __name__ == "__main__":
+    main()
