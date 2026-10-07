@@ -105,43 +105,104 @@ class ServiceHealth(unittest.TestCase):
 
 
 class StuckImports(unittest.TestCase):
-    def run_check(self, sonarr_queue, radarr_queue, state, now):
+    MISREAD = "Episode 1x02 was not found in the grabbed release: [Erai-raws] Show S01 - 01 ~ 03 [BATCH]"
+
+    def run_check(self, sonarr_queue, radarr_queue, state, now, history=(), found=()):
         calls, pushes = [], []
 
         def api(queue):
             def call(method, path, body=None, timeout=60):
-                if method == "DELETE":
-                    calls.append((path.split("?")[0], body))
-                    return None
+                if method != "GET":
+                    calls.append((method, path, body))
+                    return {}
+                if path.startswith("/history"):
+                    return {"records": [{"eventType": e} for e in history]}
+                if path.startswith("/manualimport"):
+                    return list(found)
                 return {"records": queue}
             return call
-        saved = (wd.app.sonarr, wd.app.radarr, wd.push, wd.DRY, wd.log)
+        saved = (wd.app.sonarr, wd.app.radarr, wd.app.qbit, wd.push, wd.DRY, wd.log)
         wd.app.sonarr, wd.app.radarr, wd.DRY, wd.log = api(sonarr_queue), api(radarr_queue), False, lambda msg, quiet=False: None
+        wd.app.qbit = lambda path, data=None, timeout=30: [{"hash": "batch", "content_path": "/dl/Show batch"}]
         wd.push = lambda title, msg: pushes.append(title)
         try:
             wd.check_stuck_imports(state, now)
         finally:
-            wd.app.sonarr, wd.app.radarr, wd.push, wd.DRY, wd.log = saved
+            wd.app.sonarr, wd.app.radarr, wd.app.qbit, wd.push, wd.DRY, wd.log = saved
         return calls, pushes
 
-    def test_extra_copy_is_removed_after_an_hour_and_a_real_problem_is_reported_once(self):
-        blocked = {"trackedDownloadState": "importBlocked", "statusMessages": [{"messages": ["Episode 1x09 was unexpected"]}]}
-        sonarr_queue = [  # an extra Blu-ray volume for episodes already on disk (the Re:Zero case) ...
-            {**blocked, "id": 1, "downloadId": "BD", "series": {"title": "Re:Zero"}, "episode": {"hasFile": True}},
-            {**blocked, "id": 2, "downloadId": "BD", "series": {"title": "Re:Zero"}, "episode": {"hasFile": True}},
-            # ... and a download that was the only copy of an episode
-            {**blocked, "id": 3, "downloadId": "ONLY", "series": {"title": "JoJo"}, "episode": {"hasFile": False}},
-            {"trackedDownloadState": "downloading", "id": 4, "downloadId": "OK", "series": {"title": "JoJo"}, "episode": {"hasFile": False}}]
-        radarr_queue = [{**blocked, "id": 9, "downloadId": "M", "movie": {"title": "Encanto", "hasFile": True}}]
+    @staticmethod
+    def queue(dl, episodes, have, message):
+        blocked = {"trackedDownloadState": "importBlocked", "statusMessages": [{"messages": [message]}]}
+        return [{**blocked, "id": i, "downloadId": dl, "seriesId": 7, "episodeId": ep, "series": {"title": "Show"},
+                 "episode": {"hasFile": have}} for i, ep in enumerate(episodes, 1)]
+
+    @staticmethod
+    def file(n, season=1, episode_id=None, reason=MISREAD):
+        return {"path": f"/dl/Show batch/Show - {n:02d}.mkv", "series": {"id": 7}, "quality": {"quality": {"name": "WEBDL-1080p"}},
+                "episodes": [{"id": episode_id or 100 + n, "seasonNumber": season}], "rejections": [{"reason": reason}] if reason else []}
+
+    def test_unused_extra_copy_is_deleted_and_blocklisted_after_the_grace_period(self):
+        # Re:Zero: an extra Blu-ray volume for episodes already on disk
+        q = self.queue("BD", [101, 102], True, "Episode 1x09 was unexpected considering the S4 folder name")
+        movie = [{"trackedDownloadState": "importBlocked", "id": 9, "downloadId": "M", "movie": {"title": "Encanto", "hasFile": True}}]
         state = {"searched": {}, "alerted": {}}
-        self.assertEqual(self.run_check(sonarr_queue, radarr_queue, state, NOW), ([], []))         # just noticed: wait
-        calls, pushes = self.run_check(sonarr_queue, radarr_queue, state, NOW + 2 * HOUR)
-        self.assertEqual(calls, [("/queue/bulk", {"ids": [1, 2]}), ("/queue/bulk", {"ids": [9]})])
-        self.assertEqual(pushes, ["JoJo: a download finished but couldn't be added"])
-        calls, pushes = self.run_check(sonarr_queue[2:], [], state, NOW + 3 * HOUR)               # still stuck later
-        self.assertEqual((calls, pushes), ([], []))                                                  # never twice
-        self.run_check([], [], state, NOW + 4 * HOUR)                                                # fixed by hand
+        self.assertEqual(self.run_check(q, movie, state, NOW), ([], []))                      # just noticed: wait
+        calls, pushes = self.run_check(q, movie, state, NOW + HOUR)
+        removed = [(path.split("?")[1].split("&")[:2], body) for method, path, body in calls]
+        self.assertEqual(removed, [(["removeFromClient=true", "blocklist=true"], {"ids": [1, 2]}),
+                                   (["removeFromClient=true", "blocklist=true"], {"ids": [9]})])
+        self.assertEqual(pushes, [])
         self.assertEqual(state["stuck"], {})
+
+    def test_download_whose_files_were_imported_is_only_untracked(self):
+        q = self.queue("USED", [101, 102], True, self.MISREAD)
+        calls, pushes = self.run_check(q, [], {"searched": {}, "alerted": {}, "stuck": {"Sonarr:USED": NOW - HOUR}}, NOW,
+                                       history=["grabbed", "downloadFolderImported"])
+        self.assertEqual([path.split("?")[1].split("&")[:2] for method, path, body in calls], [["removeFromClient=false", "blocklist=false"]])
+
+    def test_misread_batch_is_imported_when_every_file_reads_cleanly(self):
+        # Sonarr took "S01 - 01 ~ 03" for episode 1: it imported 01, and refuses 02 and 03
+        q = self.queue("batch", [101, 102, 103], False, self.MISREAD)
+        found = [self.file(1, reason="Episode file already imported at 10/6/2026"), self.file(2), self.file(3)]
+        calls, pushes = self.run_check(q, [], {"searched": {}, "alerted": {}, "stuck": {"Sonarr:batch": NOW - HOUR}}, NOW, found=found)
+        self.assertEqual(len(calls), 1)
+        method, path, body = calls[0]
+        self.assertEqual((method, path, body["name"], body["importMode"]), ("POST", "/command", "ManualImport", "copy"))
+        self.assertEqual([(f["path"].rsplit("/", 1)[1], f["episodeIds"]) for f in body["files"]], [("Show - 02.mkv", [102]), ("Show - 03.mkv", [103])])
+        self.assertEqual(pushes, [])
+
+    def test_batch_that_sonarr_maps_oddly_is_left_alone_and_reported_once(self):
+        # Brotherhood: TVDB's absolute numbers count specials, so file 21 reads as a special and 22 as episode 21
+        q = self.queue("fmab", [101, 102, 103, 900], False, self.MISREAD)
+        found = [self.file(1, reason="Episode file already imported at 10/6/2026"), self.file(2), self.file(3, season=0, episode_id=900)]
+        state = {"searched": {}, "alerted": {}, "stuck": {"Sonarr:fmab": NOW - HOUR}}
+        calls, pushes = self.run_check(q, [], state, NOW, found=found)
+        self.assertEqual(calls, [])                                                          # nothing imported
+        self.assertEqual(pushes, ["Show: a download finished but couldn't be added"])
+        self.assertEqual(self.run_check(q, [], state, NOW + HOUR, found=found), ([], []))   # never twice
+        self.run_check([], [], state, NOW + 2 * HOUR)                                        # fixed by hand
+        self.assertEqual(state["stuck"], {})
+
+
+class NewlyAddedOldShow(unittest.TestCase):
+    def test_old_episodes_count_as_missing_from_when_the_show_was_added(self):
+        added = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW - HOUR))      # Brotherhood: added an hour ago, aired 2010
+        fake = Fake([{"id": 18, "title": "Brotherhood", "added": added}], {18: [ep(1, 1, 64, 140000)]})
+        state = {"searched": {}, "alerted": {}}
+        Watchdog.run_check(self, fake, state)
+        self.assertEqual((fake.commands, fake.pushes), ([], []))                     # its download gets a chance first
+        saved = wd.app.sonarr, wd.app.follow_new_episodes, wd.push, wd.DRY, wd.log
+        wd.app.sonarr, wd.DRY, wd.log = fake.sonarr, False, lambda msg: None
+        wd.push = lambda title, msg: fake.pushes.append((title, msg))
+        try:
+            wd.check_shows(state, NOW + 7 * HOUR)
+            self.assertEqual(len(fake.commands), 1)                                   # 6 hours after adding: search again
+            wd.check_shows(state, NOW + 50 * HOUR)
+        finally:
+            wd.app.sonarr, wd.app.follow_new_episodes, wd.push, wd.DRY, wd.log = saved
+        self.assertEqual(len(fake.pushes), 1)
+        self.assertIn("2+ days after the show was added", fake.pushes[0][1])
 
 
 if __name__ == "__main__":

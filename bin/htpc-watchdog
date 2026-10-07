@@ -6,16 +6,22 @@
   (that's how the Steel Ball Run season-numbering bug looked).
 - Aired episodes / released movies still missing after 6 hours are searched again (at most every 12 hours each).
 - Still missing 2 days after airing (3 days for movies): one phone alert per episode/movie.
-- A finished download Sonarr/Radarr can't import (stuck in their queue for an hour+): removed and blocklisted when
-  everything it was for is already in the library (e.g. an extra Blu-ray volume Sonarr took for a whole season),
-  otherwise one phone alert.
+- A finished download Sonarr/Radarr can't import (stuck in their queue for 20+ minutes):
+  - everything it was for is already in the library: an unused extra copy (e.g. a Blu-ray volume Sonarr took for a
+    whole season) is removed and blocklisted; a download whose files were imported is just no longer tracked
+  - a batch Sonarr refuses only because it misread the batch's name when grabbing it (Erai-raws "S01 - 01 ~ 64" read
+    as episode 1) is imported file by file, if Sonarr reads every file cleanly as one of the download's own episodes
+  - anything else: one phone alert.
+- "Missing for 6 hours / 2 days" counts from when the show was added, not only from the air date (old shows).
 Usage: htpc-watchdog [--dry-run]"""
+import calendar
 import getpass
 import importlib.util
 import json
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -91,6 +97,13 @@ def code(e):
     return f"S{e['seasonNumber']:02d}E{e['episodeNumber']:02d}"
 
 
+def added_at(item):
+    try:
+        return calendar.timegm(time.strptime(item["added"][:19], "%Y-%m-%dT%H:%M:%S"))
+    except (KeyError, TypeError, ValueError):
+        return 0
+
+
 def check_shows(state, now):
     queued = {r.get("episodeId") for r in app.sonarr("GET", "/queue?pageSize=1000")["records"]}
     for s in app.sonarr("GET", "/series"):
@@ -105,8 +118,10 @@ def check_shows(state, now):
                 push(f"{s['title']} wasn't set to download anything",
                      f"It now gets new episodes automatically. To get earlier episodes, add a season on {app.CONF.get('public_host') or 'the website'}.")
             continue
+        added = added_at(s)
+        wanted_for = lambda e: now - max(app.air_time(e), added)       # an old show only became wanted when it was added
         missing = [e for e in eps if e["monitored"] and not e["hasFile"] and e["id"] not in queued
-                   and app.air_time(e) is not None and now - app.air_time(e) > 6 * HOUR]
+                   and app.air_time(e) is not None and wanted_for(e) > 6 * HOUR]
         due = [e for e in missing if now - state["searched"].get(str(e["id"]), 0) > 12 * HOUR]
         if due:
             seasons = sorted({e["seasonNumber"] for e in due})
@@ -119,13 +134,14 @@ def check_shows(state, now):
                         app.sonarr("POST", "/command", {"name": "SeasonSearch", "seriesId": s["id"], "seasonNumber": n})
             for e in due:
                 state["searched"][str(e["id"])] = now
-        overdue = [e for e in missing if now - app.air_time(e) > 48 * HOUR and f"ep:{e['id']}" not in state["alerted"]]
+        overdue = [e for e in missing if wanted_for(e) > 48 * HOUR and f"ep:{e['id']}" not in state["alerted"]]
         if overdue:
             for e in overdue:
                 state["alerted"][f"ep:{e['id']}"] = now
             days = int((now - app.air_time(overdue[-1])) // (24 * HOUR))
+            when = "still not found 2+ days after the show was added" if app.air_time(overdue[-1]) < added else f"aired {days}+ days ago"
             push(f"{s['title']}: no release found yet",
-                 f"{', '.join(code(e) for e in overdue[:6])}{' and more' if len(overdue) > 6 else ''} aired {days}+ days ago. "
+                 f"{', '.join(code(e) for e in overdue[:6])}{' and more' if len(overdue) > 6 else ''} {when}. "
                  "Sonarr keeps checking; the episode may be named differently on Nyaa.")
 
 
@@ -145,6 +161,51 @@ def check_movies(state, now):
             push(f"{m['title']}: no release found yet", "It's out, but no download has been found in 3 days. Radarr keeps checking.")
 
 
+GRACE = 20 * 60          # how long a stuck import gets to sort itself out before the watchdog steps in
+GRAB_MISMATCH = "was not found in the grabbed release"
+
+
+def used_download(api, download_id):
+    """Did any file of this download make it into the library?"""
+    try:
+        h = api("GET", f"/history?downloadId={urllib.parse.quote(download_id)}&pageSize=200")
+    except Exception:
+        return False
+    return any(r.get("eventType") == "downloadFolderImported" for r in (h.get("records") if isinstance(h, dict) else h) or [])
+
+
+def import_batch(recs):
+    """Sonarr misread a batch's name when it grabbed it (e.g. Erai-raws "S01 - 01 ~ 64" taken as episode 1) and now
+    refuses the other files. Import them anyway, but only if Sonarr reads every file as one of this download's own
+    regular episodes, no two files as the same episode, and nothing else is wrong with them. Returns the number of files
+    imported; 0 means it isn't safe (e.g. Brotherhood: TVDB's absolute numbers count specials) and a person must look."""
+    r0 = recs[0]
+    wanted = {r.get("episodeId") for r in recs}
+    t = next((t for t in app.qbit("/torrents/info") if t["hash"].upper() == r0["downloadId"].upper()), None)
+    if not t:
+        return 0
+    found = app.sonarr("GET", "/manualimport?" + urllib.parse.urlencode(
+        {"folder": t["content_path"], "downloadId": r0["downloadId"], "filterExistingFiles": "false"}), timeout=120)
+    files, seen = [], set()
+    for c in found:
+        reasons = [x.get("reason", "") for x in c.get("rejections") or []]
+        if any("already imported" in x for x in reasons):
+            continue
+        eps = c.get("episodes") or []
+        ids = {e["id"] for e in eps}
+        if (not eps or (c.get("series") or {}).get("id") != r0.get("seriesId") or any(e["seasonNumber"] == 0 for e in eps)
+                or not ids <= wanted or ids & seen or any(GRAB_MISMATCH not in x for x in reasons)):
+            return 0
+        seen |= ids
+        files.append({"path": c["path"], "seriesId": r0["seriesId"], "episodeIds": sorted(ids), "quality": c.get("quality"),
+                      "languages": c.get("languages") or [], "releaseGroup": c.get("releaseGroup") or "",
+                      "downloadId": r0["downloadId"], "indexerFlags": c.get("indexerFlags") or 0,
+                      "releaseType": "multiEpisode" if len(ids) > 1 else "singleEpisode"})
+    if files and not DRY:
+        app.sonarr("POST", "/command", {"name": "ManualImport", "importMode": "copy", "files": files})   # copy = hardlink
+    return len(files)
+
+
 def check_stuck_imports(state, now):
     first = state.setdefault("stuck", {})
     groups = {}
@@ -156,8 +217,9 @@ def check_stuck_imports(state, now):
         first.pop(key)                                  # resolved on its own (or by hand)
     for (arr, dl), recs in groups.items():
         key = f"{arr}:{dl}"
-        if now - first.setdefault(key, now) < HOUR:      # give Sonarr/Radarr a chance to finish by themselves
+        if now - first.setdefault(key, now) < GRACE:     # give Sonarr/Radarr a chance to finish by themselves
             continue
+        api = app.sonarr if arr == "Sonarr" else app.radarr
         r0 = recs[0]
         if arr == "Sonarr":
             title = (r0.get("series") or {}).get("title") or r0.get("title", "")
@@ -165,15 +227,27 @@ def check_stuck_imports(state, now):
         else:
             title = (r0.get("movie") or {}).get("title") or r0.get("title", "")
             have_all = bool((r0.get("movie") or {}).get("hasFile"))
-        why = "; ".join(m for x in r0.get("statusMessages") or [] for m in x.get("messages") or [])[:220] or "import blocked"
+        msgs = [m for x in r0.get("statusMessages") or [] for m in x.get("messages") or []]
+        why = "; ".join(m for m in msgs if "already imported" not in m)[:220] or "import blocked"
+        ids = {"ids": [r["id"] for r in recs]}
         if have_all:
-            log(f"{title}: removing a download {arr} couldn't import, everything it was for is already in the library "
-                f"({r0.get('title', '')[:90]}): {why}")
-            if not DRY:
-                api = app.sonarr if arr == "Sonarr" else app.radarr
-                api("DELETE", "/queue/bulk?removeFromClient=true&blocklist=true&skipRedownload=true", {"ids": [r["id"] for r in recs]})
+            if used_download(api, dl):           # its files are in the library; Sonarr/Radarr just can't tick it off
+                log(f"{title}: everything from this download is in the library, no longer tracking it ({r0.get('title', '')[:90]})")
+                if not DRY:
+                    api("DELETE", "/queue/bulk?removeFromClient=false&blocklist=false&skipRedownload=true", ids)
+            else:                                # an unused extra copy: delete it and don't grab it again
+                log(f"{title}: removing a download {arr} couldn't import, everything it was for is already in the library "
+                    f"({r0.get('title', '')[:90]}): {why}")
+                if not DRY:
+                    api("DELETE", "/queue/bulk?removeFromClient=true&blocklist=true&skipRedownload=true", ids)
             first.pop(key)
-        elif f"stuck:{key}" not in state["alerted"]:
+            continue
+        if arr == "Sonarr" and any(GRAB_MISMATCH in m for m in msgs):
+            n = import_batch(recs)
+            if n:
+                log(f"{title}: imported {n} files Sonarr had refused after misreading the batch's name ({r0.get('title', '')[:90]})")
+                continue                         # next run: everything is in the library, so it stops being tracked
+        if f"stuck:{key}" not in state["alerted"]:
             state["alerted"][f"stuck:{key}"] = now
             push(f"{title}: a download finished but couldn't be added",
                  f"{arr} says: {why}. Fix it in {arr} → Activity → Queue (import it by hand, or remove it so it searches again).")
