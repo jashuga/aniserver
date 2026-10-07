@@ -36,8 +36,6 @@ CONF = json.loads((Path.home() / ".config/manga-request/config.json").read_text(
 PROWLARR = "http://localhost:9696/api/v1"
 QBIT = "http://localhost:8090/api/v2"
 RSS_FOLDER = "Manga"
-COOKIE = "mr_session"
-SESSION = hmac.new(CONF["secret"].encode(), b"friend", hashlib.sha256).hexdigest()
 
 
 # ---------- remote (internet) logins: username + strong password + TOTP code ----------
@@ -123,11 +121,16 @@ def remote_token_user(token, purpose="remote"):
         return None
 
 
-def session_cookies(user):
-    """Signed-in for a year (sliding), and this device remembered as trusted for two."""
+def cookie_flags(secure):
+    # Secure only over HTTPS: at home the site also opens as plain http://<laptop>:5050, where browsers drop Secure cookies
+    return "Path=/; HttpOnly; SameSite=Lax" + ("; Secure" if secure else "")
+
+
+def session_cookies(user, secure=True):
+    """Signed-in for a year (sliding), and this browser remembered as trusted for two."""
     exp, texp = int(time.time()) + REMOTE_SESSION_DAYS * 86400, int(time.time()) + TRUST_DAYS * 86400
-    return [f"{REMOTE_COOKIE}={remote_token(user, exp)}; Max-Age={REMOTE_SESSION_DAYS * 86400}; Path=/; HttpOnly; SameSite=Lax; Secure",
-            f"{TRUST_COOKIE}={remote_token(user, texp, 'trusted')}; Max-Age={TRUST_DAYS * 86400}; Path=/; HttpOnly; SameSite=Lax; Secure"]
+    return [f"{REMOTE_COOKIE}={remote_token(user, exp)}; Max-Age={REMOTE_SESSION_DAYS * 86400}; {cookie_flags(secure)}",
+            f"{TRUST_COOKIE}={remote_token(user, texp, 'trusted')}; Max-Age={TRUST_DAYS * 86400}; {cookie_flags(secure)}"]
 
 
 def password_problem(new, repeat, current=""):
@@ -137,7 +140,7 @@ def password_problem(new, repeat, current=""):
         return "The two new passwords don't match."
     if new == current:
         return "That's the same as the current password."
-    if new.lower() in [p.lower() for p in CONF.get("reserved_passwords", [])] or new == CONF["password"]:
+    if new.lower() in [p.lower() for p in CONF.get("reserved_passwords", [])]:
         return "Pick a password you don't use for anything else."
     return None
 
@@ -1173,7 +1176,6 @@ def next_up(user):
 
 POOL = ThreadPoolExecutor(12)
 STATIC = Path(__file__).resolve().parent / "static"
-PROFILE_COOKIE = "htpc_profile"
 IMG_WIDTHS = (160, 240, 360, 480, 640, 960, 1280, 1920)
 ITEM_FIELDS = "Overview,Genres,ProviderIds,Studios,Path,DateCreated,Chapters,MediaStreams,MediaSources,ChildCount,Trickplay"
 QUALITIES = {   # key: (label, video bitrate, max width) for converted streams; "auto" plays the original whenever possible
@@ -1852,162 +1854,6 @@ def playinfo(user, item_id):
 
 # ---------- HTML ----------
 
-STYLE = """
-:root{--bg:#0e0e11;--bar:rgba(14,14,17,.86);--card:#17171c;--card2:#202027;--fg:#f2f2f4;--muted:#9b9ba7;
---line:#2b2b34;--accent:#ff7a1a;--accent-fg:#1a0b00;--ok:#38d27b;--warn:#ffb020;--err:#ff5a5a;color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-a{color:inherit}
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--bar);backdrop-filter:blur(12px);
-border-bottom:1px solid var(--line)}
-.top .in{max-width:1240px;margin:0 auto;padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px}
-.brand{font-weight:800;font-size:19px;letter-spacing:-.02em;text-decoration:none;display:flex;align-items:center;gap:8px}
-.brand i{width:10px;height:10px;border-radius:3px;background:var(--accent);display:inline-block}
-nav{display:flex;flex-wrap:wrap;gap:2px}
-nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:99px;font-weight:500}
-nav a:hover{color:var(--fg)}
-nav a.on{color:var(--fg);background:var(--card2)}
-.wrap{max-width:1240px;margin:0 auto;padding:22px 16px 40px}
-footer{max-width:1240px;margin:0 auto;padding:18px 16px 40px;color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 18px;border-top:1px solid var(--line)}
-footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--fg)}
-h2{font-size:20px;margin:6px 0 16px;letter-spacing:-.01em}
-.btn,button{font:inherit;font-weight:600;cursor:pointer;border:0;border-radius:10px;padding:9px 16px;background:var(--accent);
-color:var(--accent-fg);text-decoration:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.btn:hover,button:hover{filter:brightness(1.08)}
-.btn.ghost,button.ghost{background:var(--card2);color:var(--fg)}
-.btn.small,button.small{padding:6px 12px;font-size:13px}
-form.search{display:flex;gap:10px;margin:0 0 10px}
-.bigsearch{position:relative;flex:1}
-.bigsearch svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);opacity:.6}
-input[type=text],input[type=password]{font:inherit;width:100%;padding:13px 16px;border-radius:12px;border:1px solid var(--line);
-background:var(--card);color:var(--fg);outline:none}
-.bigsearch input{padding-left:46px;font-size:16px}
-input:focus{border-color:var(--accent)}
-label{color:var(--muted);display:flex;gap:6px;align-items:center;font-size:14px}
-.hint{font-size:13px;color:var(--muted);margin:4px 0 22px}
-.msg{padding:12px 16px;border-radius:12px;margin-bottom:18px;background:var(--card);border-left:4px solid var(--line)}
-.msg.ok{border-left-color:var(--ok)}.msg.err{border-left-color:var(--err)}
-.muted{color:var(--muted)}
-/* poster grid */
-.posters{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:24px 16px}
-@media (max-width:520px){.posters{grid-template-columns:repeat(2,1fr);gap:18px 12px}}
-.poster{all:unset;cursor:pointer;display:flex;flex-direction:column;min-width:0}
-.poster .img{position:relative;aspect-ratio:2/3;border-radius:10px;overflow:hidden;background:var(--card2);
-box-shadow:0 6px 18px rgba(0,0,0,.35)}
-.poster img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s ease}
-.poster:hover img,.poster:focus-visible img{transform:scale(1.05)}
-.poster:focus-visible .img{outline:2px solid var(--accent);outline-offset:2px}
-.poster.dim{opacity:.55}
-.chip{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:3px 7px;
-border-radius:6px;background:rgba(0,0,0,.72);color:#fff}
-.poster .tl{position:absolute;left:8px;top:8px}
-.poster .bl{position:absolute;left:8px;bottom:8px;right:8px;width:max-content;max-width:calc(100% - 16px)}
-.chip.ok{background:var(--ok);color:#06210f}.chip.warn{background:var(--warn);color:#2a1a00}
-.poster .t{font-weight:600;font-size:14px;line-height:1.3;margin-top:9px;display:-webkit-box;-webkit-line-clamp:2;
--webkit-box-orient:vertical;overflow:hidden}
-.poster .m{font-size:12.5px;color:var(--muted);margin-top:2px}
-/* details dialog */
-dialog{border:0;padding:0;border-radius:16px;background:var(--card);color:var(--fg);width:min(860px,calc(100vw - 24px));
-max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.6)}
-dialog::backdrop{background:rgba(0,0,0,.7);backdrop-filter:blur(3px)}
-.banner{height:170px;background-size:cover;background-position:center;position:relative}
-.banner::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 20%,var(--card))}
-.close{position:absolute;right:12px;top:12px;z-index:2;background:rgba(0,0,0,.6);color:#fff;border-radius:99px;
-width:36px;height:36px;padding:0;justify-content:center;font-size:18px}
-.dbody{display:flex;gap:22px;padding:0 24px 24px;margin-top:-90px;position:relative;z-index:1}
-.dbody .cov{width:170px;flex:none;aspect-ratio:2/3;border-radius:10px;object-fit:cover;box-shadow:0 10px 30px rgba(0,0,0,.5)}
-.dinfo{min-width:0;padding-top:96px;flex:1}
-.dinfo h3{font-size:24px;line-height:1.2;margin:0 0 4px;letter-spacing:-.01em}
-.dinfo .ro{color:var(--muted);margin-bottom:10px}
-.facts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}
-.facts span{background:var(--card2);border-radius:8px;padding:3px 9px;font-size:13px;color:var(--fg)}
-.facts span.g{color:var(--muted)}
-.desc{color:#cfcfd6;white-space:pre-line;font-size:14px;max-height:9.5em;overflow:auto;margin:0 0 14px;padding-right:6px}
-*{scrollbar-width:thin;scrollbar-color:#3a3a45 transparent}
-.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:14px;border-top:1px solid var(--line)}
-.actions form{display:contents}
-.note{font-size:13px;color:var(--muted);flex-basis:100%}
-@media (max-width:620px){.dbody{flex-direction:column;align-items:center;margin-top:-110px;padding:0 16px 20px}
-.dinfo{padding-top:0;text-align:left;width:100%}.dbody .cov{width:140px}}
-/* my shows hub */
-.hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,430px),1fr));gap:16px}
-.hcard{display:flex;gap:14px;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;scroll-margin-top:90px}
-.hcard.focus{box-shadow:0 0 0 2px var(--accent)}
-.hcard>img{width:86px;height:129px;align-self:flex-start;object-fit:cover;border-radius:8px;flex:none;background:var(--card2)}
-.hcard .info{min-width:0;flex:1;display:flex;flex-direction:column;gap:7px}
-.hcard h3{margin:0;font-size:16px;line-height:1.25}
-.hcard .hact{display:flex;justify-content:flex-end;margin-top:auto}.hcard .hact button{padding:4px 8px;font-size:12.5px;opacity:.75}
-.hcard .hact button:hover{opacity:1}.hcard .hact .ic{width:16px;height:16px}
-dialog.small{width:min(460px,calc(100vw - 24px))}.confirm{padding:24px}.confirm h3{margin:0 0 10px;font-size:20px}.confirm p{color:#c9c9d2;margin:0 0 20px;line-height:1.5}
-.confirm .row{display:flex;gap:10px;justify-content:flex-end}.confirm button.danger{background:var(--err);color:#fff}
-.status{font-size:13.5px;color:var(--muted)}.status.ok{color:var(--ok)}.status.busy{color:var(--accent)}
-.nextup{background:var(--card2);border-radius:10px;padding:9px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.nextup .n{flex:1;min-width:140px;font-size:13.5px}.nextup .n b{display:block;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-.ep{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
-.ep .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:2px}
-form.inline{display:inline;margin:0}
-.btn.icon,button.icon{padding:5px 10px;font-size:13px}
-.spin{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:sp 1s linear infinite;vertical-align:-1px;margin-right:4px}
-@keyframes sp{to{transform:rotate(360deg)}}
-/* tables (manga) */
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse}
-th,td{padding:11px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
-th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:var(--card2)}
-tr:last-child td{border-bottom:0}
-tr:hover td{background:rgba(255,255,255,.02)}
-td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted)}
-td.title{min-width:280px}
-td.act{white-space:nowrap;text-align:right}
-td.act form{display:inline}
-.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:90px}.bar>i{display:block;height:100%;background:var(--accent)}
-@media (max-width:560px){.top .tools{order:2}.top nav{order:3}.top .in{gap:4px;padding:10px 16px 6px}nav{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -4px}nav a{flex:none;padding:6px 11px}}
-.dlhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}.dlhead h2{margin-bottom:6px}
-.dlsec{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 10px}
-.dlc{display:flex;gap:14px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;align-items:flex-start}
-.dlc>img,.dlc .ph{width:56px;height:84px;border-radius:7px;object-fit:cover;flex:none;background:var(--card2);display:grid;place-items:center;font-size:24px}
-.dli{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-.dlt{display:flex;gap:10px;align-items:center;justify-content:space-between}.dlt span:first-child{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dlt a{text-decoration:none}.dlt a:hover{text-decoration:underline}
-.dls{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dlm{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;color:var(--muted);flex-wrap:wrap}
-.dlm b{color:var(--fg)}.dlm b.ok{color:var(--ok)}
-.dlc .bar{height:7px}
-.chip.st{background:var(--card2);color:var(--fg);flex:none}
-.s-downloading .chip.st{background:var(--accent);color:var(--accent-fg)}.s-ready .chip.st{background:var(--ok);color:#06210f}
-.s-importing .chip.st{background:#4f8cff;color:#fff}.s-error .chip.st,.s-blocked .chip.st{background:var(--err);color:#fff}
-.s-stalled .bar i,.s-queued .bar i,.s-paused .bar i{background:#6b6b78}
-.acct{display:grid;gap:16px;max-width:620px}.acard{padding:20px}.acard h3{margin:0 0 4px;font-size:17px}
-.acard .row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}.who1{display:flex;gap:14px;align-items:center}
-.avatar.big{width:52px;height:52px;border-radius:12px;font-size:24px}
-.pwform{display:flex;flex-direction:column;gap:10px;margin-top:14px;max-width:420px}.pwform button{align-self:flex-start}
-.login{max-width:380px;margin:14vh auto;padding:0 16px}.login form{display:flex;flex-direction:column;gap:12px}
-.login .brand{font-size:28px;margin-bottom:18px}
-"""
-
-SCRIPT = """
-const dlg = document.getElementById('details');
-function busy(root) {
-  root.querySelectorAll('form[data-busy]').forEach(f => f.addEventListener('submit', e => {
-    if (f.dataset.sent) { e.preventDefault(); return; }   // no double adds; keep the clicked button enabled so its mode is sent
-    f.dataset.sent = '1';
-    const b = e.submitter || f.querySelector('button'); b.textContent = 'Adding…';
-  }));
-}
-document.querySelectorAll('[data-t]').forEach(card => card.addEventListener('click', () => {
-  dlg.innerHTML = document.getElementById(card.dataset.t).innerHTML;
-  busy(dlg);
-  dlg.querySelector('.close').addEventListener('click', () => dlg.close());
-  dlg.showModal();
-}));
-dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
-busy(document);
-const openId = new URLSearchParams(location.search).get('open');
-if (openId) { const b = document.querySelector('[data-al="' + CSS.escape(openId) + '"]'); if (b) b.click(); }
-"""
-
 ICON_TAGS = ('<link rel="icon" href="/static/icon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="48x48">'
              '<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest">'
              '<meta name="apple-mobile-web-app-title" content="aniserver">')
@@ -2190,946 +2036,25 @@ def jump_icon(forward):
             '<text x="12" y="16.6" text-anchor="middle" font-size="7.2" font-weight="800" font-family="system-ui,sans-serif">10</text></svg>')
 
 
-STREAM_STYLE = """
-:root{--gut:clamp(16px,4vw,60px)}
-.ic{width:20px;height:20px;flex:none}
-.top .tools{margin-left:auto;display:flex;gap:6px;align-items:center}
-.iconlink{width:38px;height:38px;border-radius:99px;display:grid;place-items:center;color:var(--fg);text-decoration:none}
-.iconlink:hover{background:rgba(255,255,255,.1)}
-.avatar{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-weight:800;color:#141414;text-decoration:none;font-size:15px}
-body.full .top .in{max-width:none;padding:12px var(--gut)}
-.top.over{position:fixed;left:0;right:0;top:0;background:linear-gradient(rgba(0,0,0,.78),rgba(0,0,0,0));border-bottom-color:transparent;
-backdrop-filter:none;transition:background .3s,border-color .3s;background-origin:border-box}
-.top.over.solid{background:var(--bar);backdrop-filter:blur(14px);border-bottom-color:var(--line)}
-.top.over nav a{color:#d5d5dc;text-shadow:0 1px 6px rgba(0,0,0,.5)}.top.over nav a.on{color:#fff;background:rgba(255,255,255,.14)}
-main.full{min-height:70vh}
-img.f{opacity:0;transition:opacity .45s ease}img.f.ok{opacity:1}
-/* hero */
-.hero{position:relative;height:clamp(500px,86vh,880px);background:#000;overflow:hidden}
-.slide{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity 1s ease,visibility 1s}
-.slide.on{opacity:1;visibility:visible}
-.slide .bg,.thero .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 22%}
-.slide.on .bg{animation:kb 20s ease-out both}
-@keyframes kb{from{transform:scale(1.09)}to{transform:scale(1)}}
-.slide::after,.thero::after{content:"";position:absolute;inset:0;pointer-events:none;
-background:linear-gradient(90deg,rgba(14,14,17,.94) 0%,rgba(14,14,17,.62) 34%,rgba(14,14,17,0) 68%),linear-gradient(0deg,var(--bg) 0%,rgba(14,14,17,.6) 18%,rgba(14,14,17,0) 42%)}
-.hc{position:absolute;z-index:2;left:var(--gut);bottom:clamp(96px,17vh,170px);width:min(600px,calc(100% - 2*var(--gut)))}
-.hc .logo{display:block;max-width:min(460px,82%);max-height:clamp(90px,17vh,170px);object-fit:contain;object-position:left bottom;
-margin-bottom:18px;filter:drop-shadow(0 4px 22px rgba(0,0,0,.65))}
-.hc h1{font-size:clamp(32px,5.4vw,62px);line-height:1;margin:0 0 16px;letter-spacing:-.025em;text-shadow:0 2px 20px rgba(0,0,0,.5)}
-.kicker{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.kicker::before{content:"";width:16px;height:3px;border-radius:2px;background:currentColor}
-.meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;color:#dadae2;font-size:14.5px}
-.meta .dot{opacity:.45}
-.rating{border:1px solid rgba(255,255,255,.45);padding:0 6px;border-radius:4px;font-size:12px;font-weight:600}
-.star{color:#ffc53d}
-.hc .ov{color:#e4e4ea;font-size:clamp(14.5px,1.15vw,16.5px);line-height:1.55;margin:14px 0 20px;display:-webkit-box;-webkit-line-clamp:3;
--webkit-box-orient:vertical;overflow:hidden;text-shadow:0 1px 10px rgba(0,0,0,.6)}
-.hep{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:14px;font-weight:600;font-size:14.5px}
-.mini{width:110px;height:4px;border-radius:2px;background:rgba(255,255,255,.28);overflow:hidden}.mini i{display:block;height:100%;background:var(--accent)}
-.hep .left{color:#c4c4cc;font-weight:500}.hep .en{flex-basis:100%}
-.hbtns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.btn.play{background:#fff;color:#0b0b0b;padding:12px 28px 12px 22px;font-size:16.5px;font-weight:700;border-radius:8px}
-.btn.play .ic{width:26px;height:26px}
-.btn.glass{background:rgba(120,120,128,.42);color:#fff;padding:12px 22px;font-size:16.5px;border-radius:8px;backdrop-filter:blur(8px)}
-.btn.glass .ic{width:24px;height:24px}
-.btn.round,button.round{width:48px;height:48px;padding:0;justify-content:center;border-radius:99px;background:rgba(30,30,36,.55);
-border:1.5px solid rgba(255,255,255,.55);color:#fff;backdrop-filter:blur(8px)}
-.btn.round .ic,button.round .ic{width:22px;height:22px}
-.btn.round:hover,button.round:hover{border-color:#fff;background:rgba(60,60,68,.7)}
-button.round[aria-pressed=true]{background:var(--ok);border-color:var(--ok);color:#06210f}
-.dots{position:absolute;right:var(--gut);bottom:clamp(96px,17vh,170px);z-index:3;display:flex;gap:8px}
-.dots button{width:26px;height:4px;padding:0;border-radius:2px;background:rgba(255,255,255,.32)}
-.dots button.on{background:#fff;width:40px}
-/* rows */
-.rows{position:relative;z-index:3;margin-top:-70px;padding-bottom:20px}
-.rows.flat{margin-top:0;padding-top:90px}
-.row{margin:0 0 30px;position:relative}
-.row h2{margin:0 0 8px;padding:0 var(--gut);font-size:clamp(17px,1.55vw,21px);display:flex;align-items:baseline;gap:12px}
-.row h2 a{font-size:13px;color:var(--muted);text-decoration:none;font-weight:600}.row h2 a:hover{color:var(--fg)}
-.rail{display:grid;grid-auto-flow:column;grid-auto-columns:var(--cw);gap:clamp(8px,.9vw,14px);overflow-x:auto;overscroll-behavior-x:contain;
-scroll-snap-type:x mandatory;scroll-padding-inline:var(--gut);padding:6px var(--gut) 12px;scrollbar-width:none}
-.rail::-webkit-scrollbar{display:none}
-.rail>*{scroll-snap-align:start}
-.rail.wide{--cw:clamp(240px,calc((100vw - 2*var(--gut))/4.4),390px)}
-.rail.tall{--cw:clamp(122px,calc((100vw - 2*var(--gut))/7.4),215px)}
-@media (max-width:700px){.rail.wide{--cw:74vw}.rail.tall{--cw:38vw}}
-.nav-arrow{position:absolute;top:36px;bottom:12px;width:calc(var(--gut) - 6px);min-width:34px;border-radius:0;background:rgba(14,14,17,.72);
-color:#fff;padding:0;justify-content:center;opacity:0;transition:opacity .2s;z-index:4}
-.nav-arrow .ic{width:34px;height:34px}
-.row:hover .nav-arrow{opacity:1}.row.at-start .nav-arrow.l,.row.at-end .nav-arrow.r{opacity:0!important;pointer-events:none}
-.nav-arrow.l{left:0}.nav-arrow.r{right:0}
-@media (hover:none){.nav-arrow{display:none}}
-/* episode / landscape card */
-.ec{display:block;text-decoration:none;color:inherit;min-width:0;outline:none}
-.th{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--card2)}
-.th img{width:100%;height:100%;object-fit:cover;display:block}
-.ec .th img,.pc .po img{transition:transform .4s ease,opacity .45s ease}
-.ec:hover .th img,.ec:focus-visible .th img,.pc:hover .po img,.pc:focus-visible .po img{transform:scale(1.06)}
-.ec:focus-visible .th,.pc:focus-visible .po{outline:2px solid #fff;outline-offset:2px}
-.pl{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity .2s;background:rgba(0,0,0,.28)}
-.pl span{width:52px;height:52px;border-radius:99px;background:rgba(255,255,255,.95);color:#000;display:grid;place-items:center;box-shadow:0 4px 18px rgba(0,0,0,.5)}
-.pl .ic{width:26px;height:26px;margin-left:3px}
-.ec:hover .pl,.ec:focus-visible .pl,.er .th:hover .pl{opacity:1}
-.pbar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.28)}.pbar i{display:block;height:100%;background:var(--accent)}
-.th .tag{position:absolute;top:8px;left:8px}
-.chip.accent{background:var(--accent);color:var(--accent-fg)}
-.th .dur{position:absolute;right:8px;bottom:10px;font-size:12px;font-weight:700;background:rgba(0,0,0,.78);padding:1px 6px;border-radius:4px}
-.th .seen{position:absolute;right:8px;top:8px;width:24px;height:24px;border-radius:99px;background:var(--ok);color:#06210f;display:grid;place-items:center}
-.th .seen .ic{width:16px;height:16px}
-.ec .t1,.pc .t1{font-weight:700;font-size:14.5px;margin-top:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ec .t2,.pc .t2{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
-/* poster card */
-.pc{display:block;text-decoration:none;color:inherit;min-width:0;outline:none}
-.po{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;background:var(--card2)}
-.po img{width:100%;height:100%;object-fit:cover;display:block}
-.po .badge{position:absolute;top:0;left:8px;background:var(--accent);color:var(--accent-fg);font-size:10.5px;font-weight:800;padding:5px 7px 4px;
-border-radius:0 0 6px 6px;letter-spacing:.05em;text-transform:uppercase}
-.po .dl{position:absolute;left:0;right:0;bottom:0;padding:28px 9px 9px;background:linear-gradient(transparent,rgba(0,0,0,.9));font-size:12px;font-weight:700}
-.po .dl .bar{margin-top:6px;min-width:0;height:4px}
-/* title page */
-.thero{position:relative;min-height:clamp(480px,78vh,800px);display:flex;align-items:flex-end;background:#000;overflow:hidden}
-.thero .hc{position:relative;left:auto;bottom:auto;padding:130px var(--gut) clamp(34px,6vh,64px);width:min(760px,100%)}
-.thero .ov{-webkit-line-clamp:4;cursor:pointer}.thero .ov.open{-webkit-line-clamp:unset}
-.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.tags span{font-size:12.5px;color:#d0d0d8;background:rgba(255,255,255,.1);padding:3px 10px;border-radius:99px;backdrop-filter:blur(6px)}
-.tbody{padding:4px var(--gut) 40px;position:relative;z-index:2;max-width:1500px}
-.strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;
-padding:12px 16px;margin:0 0 22px;font-size:14px}
-.strip .bar{flex:1;min-width:140px;max-width:320px}
-.strip.ok{border-left:4px solid var(--ok)}.strip.busy{border-left:4px solid var(--accent)}
-.seasonbar{display:flex;align-items:flex-end;gap:12px;border-bottom:1px solid var(--line);margin:0 0 8px;flex-wrap:wrap}
-.seasons{display:flex;gap:4px 22px;overflow-x:auto;scrollbar-width:none;flex:1}
-.seasons button{background:none;color:var(--muted);border-radius:0;padding:12px 2px;border-bottom:3px solid transparent;font-size:16px;font-weight:700;margin-bottom:-1px}
-.seasons button:hover{color:var(--fg)}.seasons button.on{color:var(--fg);border-bottom-color:var(--accent)}
-.seasonbar .sact{padding-bottom:8px}
-.eplist[hidden]{display:none}
-.er{display:grid;grid-template-columns:clamp(150px,21vw,290px) minmax(0,1fr) auto;gap:clamp(12px,1.6vw,22px);align-items:center;padding:14px 10px;
-border-bottom:1px solid var(--line);border-radius:10px}
-.er:hover{background:var(--card)}
-.er .th{display:block}
-.er h4{margin:0;font-size:16px;line-height:1.3}.er h4 a{text-decoration:none}.er h4 a:hover{text-decoration:underline}
-.er .em{font-size:13px;color:var(--muted);margin:3px 0 7px;display:flex;flex-wrap:wrap;gap:4px 10px}
-.er .em .now{color:var(--accent);font-weight:700}
-.er p{margin:0;color:#c6c6cf;font-size:14px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.er .acts{display:flex;flex-direction:column;gap:8px}
-.er .acts button.round{width:40px;height:40px;background:var(--card2);border-color:var(--line)}
-.er.played h4{color:#bdbdc6}
-.er.soon{opacity:.62}.er.soon:hover{background:none}
-.er.soon .th{display:grid;place-items:center;font-weight:800;color:var(--muted);font-size:20px;background:repeating-linear-gradient(135deg,var(--card),var(--card) 10px,var(--card2) 10px,var(--card2) 20px)}
-@media (max-width:640px){.er{grid-template-columns:44% minmax(0,1fr);padding:12px 0;border-radius:0}.er:hover{background:none}
-.er .acts{grid-column:1/-1;flex-direction:row;justify-content:flex-end;margin-top:-4px}.er p{-webkit-line-clamp:2;grid-column:1/-1}
-.er .info{display:contents}.er .info>div:first-child{grid-column:2}}
-.about{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 30px;margin-top:34px;padding-top:24px;border-top:1px solid var(--line);font-size:14px}
-.about b{display:block;color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
-/* profiles */
-.who{min-height:calc(100vh - 80px);display:grid;place-items:center;text-align:center;padding:40px 16px}
-.who h1{font-size:clamp(30px,4.4vw,52px);font-weight:600;margin:0 0 34px;letter-spacing:-.01em}
-.who .ps{display:flex;gap:clamp(20px,3.4vw,44px);justify-content:center;flex-wrap:wrap}
-.who a{text-decoration:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:14px;font-size:clamp(16px,1.6vw,20px)}
-.who .av{width:clamp(100px,11vw,160px);aspect-ratio:1;border-radius:14px;display:grid;place-items:center;font-size:clamp(44px,5vw,72px);
-font-weight:800;color:#151515;outline:3px solid transparent;outline-offset:3px;transition:outline-color .15s,transform .15s}
-.who a:hover,.who a:focus-visible{color:var(--fg)}.who a:hover .av,.who a:focus-visible .av{outline-color:#fff;transform:scale(1.03)}
-.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);background:#f4f4f6;color:#0b0b0b;padding:12px 18px;border-radius:10px;
-font-weight:600;opacity:0;transition:.25s;z-index:60;pointer-events:none;max-width:calc(100vw - 32px);box-shadow:0 10px 40px rgba(0,0,0,.5)}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-.empty-hero{padding:150px var(--gut) 40px;max-width:760px}
-.empty-hero h1{font-size:clamp(30px,4vw,48px);margin:0 0 10px}
-@media (max-width:700px){.hero{height:min(82vh,660px);min-height:520px}.hero .hc{bottom:46px}.dots{left:0;right:0;justify-content:center;bottom:18px}
-.slide::after,.thero::after{background:linear-gradient(0deg,var(--bg) 4%,rgba(14,14,17,.85) 36%,rgba(14,14,17,.1) 70%,rgba(14,14,17,.45) 100%)}
-.hero .hc .ov{display:none}.hc .logo{max-height:92px;max-width:72%;margin-bottom:12px}.hc h1{font-size:30px;margin-bottom:10px}
-.kicker{margin-bottom:8px}.meta{font-size:13px;gap:2px 8px}.hep{font-size:13.5px;margin-top:10px}.thero .ov{-webkit-line-clamp:3;font-size:14.5px}
-.hbtns{flex-wrap:nowrap;margin-top:16px}.hbtns .btn{flex:1;justify-content:center;padding:11px 12px;font-size:15px;min-width:0}
-.thero .hbtns .btn{flex:0 1 auto;padding:11px 22px}.rows{margin-top:0}.row h2{font-size:17px}}
-"""
-
-HOME_JS = """
-(() => {
-const top = document.querySelector('.top.over');
-if (top) { const f = () => top.classList.toggle('solid', scrollY > 40); addEventListener('scroll', f, {passive: true}); f(); }
-const hero = document.querySelector('.hero');
-if (hero) {
-  const slides = [...hero.querySelectorAll('.slide')], dots = [...hero.querySelectorAll('.dots button')];
-  let n = 0, timer = null;
-  const show = k => {
-    slides[n].classList.remove('on'); if (dots[n]) dots[n].classList.remove('on');
-    n = (k + slides.length) % slides.length;
-    const img = slides[n].querySelector('img[data-src]');
-    if (img) { img.src = img.dataset.src; img.removeAttribute('data-src'); }
-    slides[n].classList.add('on'); if (dots[n]) dots[n].classList.add('on');
-    const next = slides[(n + 1) % slides.length].querySelector('img[data-src]');
-    if (next) { const pre = new Image(); pre.src = next.dataset.src; }
-  };
-  const go = () => { clearInterval(timer); if (slides.length > 1) timer = setInterval(() => { if (!document.hidden && !hero.matches(':hover')) show(n + 1); }, 9000); };
-  dots.forEach((d, k) => d.addEventListener('click', () => { show(k); go(); }));
-  let x0 = null, y0 = null;
-  hero.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, {passive: true});
-  hero.addEventListener('touchend', e => {
-    if (x0 === null) return;
-    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) && slides.length > 1) { show(n + (dx < 0 ? 1 : -1)); go(); }
-    x0 = null;
-  });
-  go();
-  if (slides.length > 1) setTimeout(() => { const s = slides[1].querySelector('img[data-src]'); if (s) { const pre = new Image(); pre.src = s.dataset.src; } }, 1500);
-}
-document.querySelectorAll('.row').forEach(row => {
-  const rail = row.querySelector('.rail'); if (!rail) return;
-  row.querySelectorAll('.nav-arrow').forEach(b => b.addEventListener('click', () =>
-    rail.scrollBy({left: (b.classList.contains('l') ? -1 : 1) * rail.clientWidth * .86, behavior: 'smooth'})));
-  const upd = () => { row.classList.toggle('at-start', rail.scrollLeft < 8); row.classList.toggle('at-end', rail.scrollLeft + rail.clientWidth > rail.scrollWidth - 8); };
-  rail.addEventListener('scroll', upd, {passive: true}); addEventListener('resize', upd); upd();
-});
-let tt;
-const toast = msg => {
-  let t = document.querySelector('.toast');
-  if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); }
-  t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 3200);
-};
-const post = (url, data) => fetch(url, {method: 'POST', body: new URLSearchParams(data)}).then(r => r.json());
-document.addEventListener('click', async e => {
-  const tv = e.target.closest('[data-tv]');
-  if (tv) {
-    e.preventDefault(); if (tv.dataset.busy) return; tv.dataset.busy = 1;
-    toast('Starting on the TV…');
-    try { const j = await post('/api/tv', {id: tv.dataset.tv}); toast(j.msg); } catch (err) { toast("Couldn't reach the TV."); }
-    delete tv.dataset.busy; return;
-  }
-  const pl = e.target.closest('[data-played]');
-  if (pl) {
-    e.preventDefault();
-    const on = pl.getAttribute('aria-pressed') !== 'true';
-    try {
-      const j = await post('/api/played', {id: pl.dataset.played, on: on ? 1 : 0});
-      if (!j.ok) return toast(j.msg);
-      if (pl.dataset.scope) { location.reload(); return; }
-      pl.setAttribute('aria-pressed', on); pl.title = on ? 'Mark as unwatched' : 'Mark as watched';
-      const row = pl.closest('.er'); if (row) { row.classList.toggle('played', on); const bar = row.querySelector('.pbar'); if (bar) bar.remove(); }
-      toast(on ? 'Marked as watched' : 'Marked as unwatched');
-    } catch (err) { toast("That didn't work."); }
-    return;
-  }
-  const del = e.target.closest('[data-delete]');
-  if (del) {
-    e.preventDefault();
-    const d = del.dataset, dlg = document.getElementById('details');
-    const what = d.what === 'movie' ? 'movie' : 'show';
-    dlg.innerHTML = '<div class="confirm"><h3>Delete ' + d.name.replace(/[&<>]/g, '') + '?</h3><p>This deletes the ' + what +
-      (d.count > 0 ? ' and its ' + (what === 'movie' ? 'file' : d.count + ' downloaded episode' + (d.count == 1 ? '' : 's')) + ' (' + d.size + ')' : '') +
-      ' from the server, cancels any downloads for it, and stops new episodes from downloading. This can’t be undone.</p>' +
-      '<div class="row"><button class="ghost" data-x>Cancel</button><button class="danger" data-go>Delete ' + what + '</button></div></div>';
-    dlg.classList.add('small');
-    dlg.addEventListener('close', () => dlg.classList.remove('small'), {once: true});
-    dlg.querySelector('[data-x]').onclick = () => dlg.close();
-    dlg.querySelector('[data-go]').onclick = async ev => {
-      ev.target.disabled = true; ev.target.textContent = 'Deleting…';
-      try {
-        const j = await post('/api/delete', {key: d.delete});
-        if (j.ok) location.href = '/shows?' + new URLSearchParams({ok: j.msg}); else { toast(j.msg); dlg.close(); }
-      } catch (err) { toast("That didn't work."); dlg.close(); }
-    };
-    dlg.showModal();
-    return;
-  }
-  const st = e.target.closest('[data-season]');
-  if (st) {
-    document.querySelectorAll('[data-season]').forEach(b => b.classList.toggle('on', b === st));
-    document.querySelectorAll('.eplist').forEach(l => l.hidden = l.dataset.list !== st.dataset.season);
-    document.querySelectorAll('.sact [data-played]').forEach(b => b.hidden = b.dataset.for !== st.dataset.season);
-    history.replaceState(null, '', '?season=' + st.dataset.season);
-    return;
-  }
-  const ov = e.target.closest('.thero .ov');
-  if (ov) ov.classList.toggle('open');
-});
-const hash = location.hash && document.querySelector(location.hash);
-if (hash) hash.scrollIntoView({block: 'center'});
-})();
-"""
-
-
-PLAYER_CSS = """
-:root{--accent:#ff7a1a;color-scheme:dark}
-*{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#000;color:#fff;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
-#player{position:fixed;inset:0;background:#000;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-#player.idle{cursor:none}
-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-.stage{position:absolute;inset:0}
-.shade-t,.shade-b{position:absolute;left:0;right:0;pointer-events:none;transition:opacity .3s}
-.shade-t{top:0;height:150px;background:linear-gradient(rgba(0,0,0,.78),transparent)}
-.shade-b{bottom:0;height:210px;background:linear-gradient(transparent,rgba(0,0,0,.88))}
-.ui{transition:opacity .3s}
-#player.idle .ui,#player.idle .shade-t,#player.idle .shade-b{opacity:0;pointer-events:none}
-#player.idle .ui *{pointer-events:none}
-button{font:inherit;color:#fff;background:none;border:0;cursor:pointer;padding:0;display:inline-grid;place-items:center;-webkit-tap-highlight-color:transparent}
-button:focus{outline:none}button:focus-visible{outline:2px solid #fff;outline-offset:2px}
-a{color:inherit}
-.ib{width:46px;height:46px;border-radius:99px;transition:background .15s,transform .1s}
-.ib:hover{background:rgba(255,255,255,.14)}.ib:active{transform:scale(.9)}
-.ib .ic{width:28px;height:28px}
-.ic{width:24px;height:24px;flex:none}
-.topbar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;
-padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 12px max(10px,env(safe-area-inset-left))}
-.topbar a.ib{display:grid;place-items:center;text-decoration:none}
-.topbar .t{min-width:0}
-.topbar b{display:block;font-size:clamp(15px,1.4vw,19px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.topbar span{display:block;color:#d0d0d8;font-size:clamp(13px,1.1vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bottom{position:absolute;left:0;right:0;bottom:0;padding:0 max(18px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
-.seek{position:relative;height:26px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-.track{position:relative;width:100%;height:4px;background:rgba(255,255,255,.26);border-radius:2px;transition:height .12s}
-.seek:hover .track,.seek.drag .track{height:7px}
-.buf,.played,.hov{position:absolute;left:0;top:0;bottom:0;border-radius:2px;width:0}
-.buf{background:rgba(255,255,255,.38)}.hov{background:rgba(255,255,255,.22)}.played{background:var(--accent)}
-.chap{position:absolute;top:0;bottom:0;width:3px;margin-left:-1px;background:rgba(0,0,0,.7)}
-.knob{position:absolute;top:50%;left:0;width:15px;height:15px;margin:-7.5px 0 0 -7.5px;border-radius:50%;background:var(--accent);transform:scale(0);
-transition:transform .12s;box-shadow:0 0 0 4px rgba(255,122,26,.25)}
-.seek:hover .knob,.seek.drag .knob{transform:scale(1)}
-@media (hover:none){.knob{transform:scale(.85)}.track{height:5px}}
-.tip{position:absolute;bottom:30px;left:0;transform:translateX(-50%);background:rgba(18,18,22,.96);padding:6px 10px;border-radius:7px;font-size:14px;
-font-weight:700;white-space:nowrap;opacity:0;pointer-events:none;text-align:center;font-variant-numeric:tabular-nums}
-.tip small{display:block;color:#b8b8c2;font-weight:500;font-size:12px}
-.tip{padding:4px}.ttext{padding:2px 6px 1px}
-.tthumb{display:none;width:224px;height:126px;border-radius:5px;background-color:#000;background-repeat:no-repeat;margin-bottom:4px}
-.tip.has-thumb .tthumb{display:block}
-.seek:hover .tip,.seek.drag .tip{opacity:1}
-.bar{display:flex;align-items:center;gap:2px;height:54px}
-.time{font-variant-numeric:tabular-nums;font-size:14px;color:#ececf1;margin:0 8px;white-space:nowrap}
-.grow{flex:1;min-width:0;text-align:center;color:#d0d0d8;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 10px}
-.vol{display:flex;align-items:center}
-.vol input{width:0;opacity:0;transition:width .2s,opacity .2s;accent-color:#fff;margin:0}
-.vol:hover input,.vol:focus-within input{width:90px;opacity:1;margin:0 8px 0 2px}
-@media (hover:none){.vol,#rw,#ff{display:none}}
-@media (max-width:560px){.bar .hide-sm{display:none}.grow{display:none}.bar{justify-content:space-between}.time{margin-right:auto}}
-.center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:clamp(30px,9vw,100px);align-items:center}
-.center .big{width:84px;height:84px;background:rgba(0,0,0,.42);backdrop-filter:blur(6px)}
-.center .big .ic{width:50px;height:50px}
-.center .mid{width:60px;height:60px;background:rgba(0,0,0,.3)}.center .mid .ic{width:38px;height:38px}
-@media (hover:hover){.center .mid{display:none}#player:not(.paused) .center{opacity:0;pointer-events:none}}
-#player.buffering .center .big{opacity:0}
-.spinner{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;border:4px solid rgba(255,255,255,.18);
-border-top-color:var(--accent);animation:rot .85s linear infinite;display:none;pointer-events:none}
-#player.buffering .spinner{display:block}
-@keyframes rot{to{transform:rotate(360deg)}}
-.cover{position:absolute;inset:0;display:grid;place-items:center;background:#000;transition:opacity .6s;z-index:5}
-.cover .cbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.3}
-.cover .in{position:relative;text-align:center;display:flex;flex-direction:column;align-items:center;gap:22px;padding:24px}
-.cover .logo{max-width:min(440px,72vw);max-height:150px;object-fit:contain;filter:drop-shadow(0 4px 20px rgba(0,0,0,.7))}
-.cover h2{margin:0;font-size:clamp(26px,4vw,44px)}
-.cover .ep{color:#d6d6de;font-size:16px;margin-top:-10px}
-.cover .spinner{position:relative;left:auto;top:auto;margin:0;display:block}
-.cover.gone{opacity:0;pointer-events:none}
-.cover .tap{display:none}.cover.blocked .tap{display:inline-flex}.cover.blocked .spinner{display:none}
-.skip,.nextchip{position:absolute;right:max(24px,env(safe-area-inset-right));bottom:118px;z-index:3;background:rgba(18,18,22,.86);
-border:1.5px solid rgba(255,255,255,.75);padding:12px 22px;border-radius:8px;font-weight:700;font-size:15.5px;
-opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s,bottom .3s;pointer-events:none;display:flex;gap:8px;align-items:center;backdrop-filter:blur(6px)}
-.skip.show{opacity:1;transform:none;pointer-events:auto}
-.skip:hover{background:#fff;color:#000}
-#player.idle .skip{bottom:36px}
-.upnext{position:absolute;right:max(24px,env(safe-area-inset-right));bottom:118px;width:min(380px,calc(100vw - 32px));background:rgba(20,20,25,.95);
-border-radius:12px;overflow:hidden;display:flex;gap:12px;align-items:center;padding:10px;z-index:3;box-shadow:0 12px 50px rgba(0,0,0,.65);
-opacity:0;transform:translateY(10px);transition:opacity .25s,transform .25s,bottom .3s;pointer-events:none}
-.upnext.show{opacity:1;transform:none;pointer-events:auto}
-#player.idle .upnext{bottom:36px}
-.upnext img{width:132px;aspect-ratio:16/9;object-fit:cover;border-radius:7px;flex:none;background:#222}
-.upnext .m{min-width:0;flex:1}
-.upnext small{color:#b5b5c0;font-size:11.5px;text-transform:uppercase;letter-spacing:.09em;font-weight:800}
-.upnext b{display:block;font-size:14px;margin:3px 0 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.upnext .go{background:#fff;color:#000;padding:8px 14px;border-radius:6px;font-weight:800;position:relative;overflow:hidden;display:inline-flex;gap:6px;align-items:center;font-size:14px}
-.upnext .go .ic{width:18px;height:18px}
-.upnext .go i{position:absolute;left:0;top:0;bottom:0;background:rgba(255,122,26,.35);width:0}
-.upnext.counting .go i{animation:fill 8s linear forwards}
-@keyframes fill{to{width:100%}}
-.upnext .x{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:99px;background:rgba(255,255,255,.08);font-size:14px}
-.panel{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:76px;background:rgba(22,22,28,.97);border-radius:14px;padding:14px;display:flex;
-gap:16px;max-height:min(64vh,540px);z-index:6;box-shadow:0 20px 70px rgba(0,0,0,.7);opacity:0;pointer-events:none;transform:translateY(8px);
-transition:opacity .18s,transform .18s}
-.panel.show{opacity:1;pointer-events:auto;transform:none}
-.panel .col{min-width:200px;max-width:300px;overflow:auto;scrollbar-width:thin}
-.panel h5{margin:4px 10px 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#9b9ba7}
-.opt{display:flex;width:100%;text-align:left;gap:10px;padding:9px 10px;border-radius:8px;font-size:15px;align-items:center;justify-content:flex-start}
-.opt:hover{background:rgba(255,255,255,.08)}
-.opt .ck{width:18px;height:18px;flex:none;color:var(--accent);visibility:hidden}.opt.on .ck{visibility:visible}.opt.on{font-weight:700}
-.opt small{display:block;color:#9b9ba7;font-size:12.5px;font-weight:400}
-.panel .now{margin:0 10px 10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.06);font-size:13px;color:#d6d6de}
-.panel .now b{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:2px}
-.JASSUB{position:absolute!important;left:0;top:0;width:100%;height:100%;pointer-events:none;transition:transform .3s ease}
-.JASSUB canvas{pointer-events:none}
-#player:not(.idle) .JASSUB{transform:translateY(calc(-1 * min(8vh,70px)))}
-@media (max-width:640px){.panel{left:10px;right:10px;bottom:68px;flex-direction:column;max-height:62vh;overflow:auto;gap:6px}
-.panel .col{max-width:none;overflow:visible}}
-.toast{position:absolute;left:50%;top:84px;transform:translate(-50%,-8px);background:rgba(20,20,25,.94);padding:11px 18px;border-radius:9px;
-font-weight:600;opacity:0;transition:.2s;z-index:8;pointer-events:none;max-width:calc(100vw - 32px);text-align:center}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-.rip{position:absolute;top:0;bottom:0;width:36%;display:grid;place-items:center;font-weight:800;font-size:15px;opacity:0;pointer-events:none;
-transition:opacity .45s;background:rgba(255,255,255,.07)}
-.rip.l{left:0;border-radius:0 50% 50% 0/0 50% 50% 0}.rip.r{right:0;border-radius:50% 0 0 50%/50% 0 0 50%}
-.rip.show{opacity:1;transition:none}
-.rip div{display:flex;flex-direction:column;align-items:center;gap:4px}
-.sheet{position:absolute;inset:0;z-index:9;display:grid;place-items:center;background:rgba(0,0,0,.86);text-align:center;padding:24px}
-.sheet[hidden]{display:none}
-.sheet h3{font-size:clamp(22px,3vw,30px);margin:0 0 8px}.sheet p{color:#c9c9d2;margin:0 0 22px;font-size:16px}
-.sheet .ic.hero{width:64px;height:64px;color:var(--accent);margin-bottom:10px}
-.pills{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.pill{background:#fff;color:#000;padding:12px 22px;border-radius:8px;font-weight:700;display:inline-flex;gap:8px;align-items:center;text-decoration:none;font-size:15px}
-.pill.ghost{background:rgba(255,255,255,.14);color:#fff}
-.pill .ic{width:20px;height:20px}
-"""
-
-PLAYER_JS = r"""
-(() => {
-'use strict';
-const CFG = JSON.parse(document.getElementById('cfg').textContent);
-let info = JSON.parse(document.getElementById('info').textContent);
-const $ = (s, r = document) => r.querySelector(s);
-const P = $('#player'), v = $('#v'), seek = $('.seek'), tip = $('.tip'), panel = $('.panel'), upnext = $('.upnext'), cover = $('.cover');
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const fmt = t => { t = Math.max(0, Math.floor(t || 0)); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
-  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0'); };
-const store = {
-  get(k, d) { try { const x = localStorage.getItem(k); return x === null ? d : JSON.parse(x); } catch (e) { return d; } },
-  set(k, x) { try { localStorage.setItem(k, JSON.stringify(x)); } catch (e) {} },
-};
-const dev = (() => { let d = store.get('htpc-dev', ''); if (!d) { d = 'web-' + Math.random().toString(36).slice(2, 12); store.set('htpc-dev', d); } return d; })();
-let quality = store.get('htpc-q-' + CFG.net, 'auto');
-if (!CFG.qualities.some(q => q[0] === quality)) quality = 'auto';
-let hls = null, psid = '', cur = {a: -1, s: -1}, lastSaved = -1, upDismissed = false, cdTimer = null, started = false;
-let netErr = 0, medErr = 0, dragging = false, idleT = null;
-let mode = 0, floor = 0, jas = null, jasFailed = false, wdT = null, t0 = 0, loadAt = 0, waitT0 = 0, seekT0 = 0;
-let monT = null, loadSeq = 0, stalls = [], lastBwSave = 0, hevcFailed = false;
-const useHevc = () => mode === 2 && caps.hevc && !hevcFailed && quality !== '480';
-const ladder = () => useHevc() ? CFG.ladderHevc : CFG.ladder;
-const MODES = ['direct', 'remux', 'adaptive', 'burn'];
-const NET = (location.search.match(/[?&]net=(home|away)/) || [])[1] || CFG.net;     // ?net= is a testing knob
-const LEVEL_FOR = {'1080': 0, '720': 2, '480': 3};
-const dur = () => (isFinite(v.duration) && v.duration > 0 ? v.duration : info.duration) || 0;
-const creditsAt = () => info.credits != null ? info.credits : (info.next && dur() ? Math.max(0, dur() - 45) : null);
-const playedAt = t => { const d = dur(); return d > 0 && (t >= d - 4 || (info.credits != null && t >= info.credits) || t / d >= 0.92); };
-const mbps = b => (b / 1e6).toFixed(b < 1e7 ? 1 : 0) + ' Mbps';
-function modeText() {
-  if (mode === 0) return 'Original file · ' + mbps(info.bitrate);
-  if (mode === 1) return 'Original quality · ' + mbps(info.bitrate);
-  if (mode === 2 && hls && hls.levels && hls.levels[hls.currentLevel]) {
-    const l = hls.levels[hls.currentLevel]; return (hls.autoLevelEnabled ? 'Adaptive · ' : '') + l.height + 'p · ' + mbps(l.bitrate - 160000);
-  }
-  return mode === 3 ? 'Converted · subtitles burned in' : 'Adaptive';
-}
-
-// ---------- connection speed, remembered per network (home / away) ----------
-const bwKey = 'htpc-bw2-' + (NET === 'home' ? 'home' : CFG.netId);     // remembered per network (campus, phone, ...)
-function bwGet(maxAgeMs) { const b = store.get(bwKey, null); return b && Date.now() - b.at < (maxAgeMs || (NET === 'home' ? 24 : 2) * 3600e3) ? b.bps : 0; }
-function bwPut(bps) { if (!(bps > 0)) return; const old = bwGet(); store.set(bwKey, {bps: Math.round(old ? old * 0.5 + bps * 0.5 : bps), at: Date.now()}); }
-const recentStalls = () => { const now = performance.now(); stalls = stalls.filter(s => now - s < 90000); return stalls.length; };
-function bufferedAhead() { let b = 0; for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= v.currentTime + .5) b = Math.max(b, v.buffered.end(i) - v.currentTime); return b; }
-window.__htpc = () => ({mode: MODES[mode], level: hls ? hls.currentLevel : null, est: hls ? +(hls.bandwidthEstimate / 1e6).toFixed(1) : null, saved: +(bwGet() / 1e6).toFixed(1)});
-
-// ---------- what this browser can play by itself ----------
-const caps = (() => {
-  const t = document.createElement('video');
-  const MS = window.ManagedMediaSource || window.MediaSource;
-  const mse = c => { try { return !!(MS && MS.isTypeSupported(c)); } catch (e) { return false; } };
-  const can = c => { try { return !!t.canPlayType(c).replace('no', ''); } catch (e) { return false; } };
-  const either = c => mse(c) || can(c);
-  const ua = navigator.userAgent, mobile = /Mobi|Android|iPhone|iPad/.test(ua);
-  return {
-    mkv: can('video/x-matroska') || can('video/mkv') || (!mobile && /Edg\/|Chrome\//.test(ua) && !/OPR\//.test(ua)),
-    hevc: either('video/mp4; codecs="hvc1.2.4.L153.B0"') || either('video/mp4; codecs="hev1.2.4.L153.B0"'),
-    av1: either('video/mp4; codecs="av01.0.08M.10"'), vp9: either('video/mp4; codecs="vp09.00.40.08"'),
-    audio: {aac: true, mp3: true, flac: either('audio/mp4; codecs="flac"') || can('audio/flac'), opus: either('audio/mp4; codecs="opus"'),
-            eac3: either('audio/mp4; codecs="ec-3"'), ac3: either('audio/mp4; codecs="ac-3"')},
-    subs: typeof WebAssembly === 'object' && typeof Worker === 'function' && typeof JASSUB === 'function',
-  };
-})();
-function log(ev, msg) {
-  try { navigator.sendBeacon('/api/log', new URLSearchParams({id: info.id, mode: MODES[mode], ev, msg: String(msg == null ? '' : msg).slice(0, 300)})); } catch (e) {}
-}
-
-// ---------- tracks ----------
-function chooseTracks() {
-  let a = info.a, s = info.s;
-  const pref = store.get('htpc-tracks-' + info.series, null);
-  if (pref) {
-    const am = info.audios.find(x => x.lang === pref.alang); if (am) a = am.i;
-    if (pref.off) s = -1;
-    else if (pref.slang) {
-      const sm = info.subs.find(x => x.lang === pref.slang && x.kind === pref.skind) || info.subs.find(x => x.lang === pref.slang);
-      if (sm) s = sm.i;
-    }
-  }
-  cur = {a, s};
-}
-function rememberTracks() {
-  const a = info.audios.find(x => x.i === cur.a), s = info.subs.find(x => x.i === cur.s);
-  store.set('htpc-tracks-' + info.series, {alang: a ? a.lang : null, off: cur.s < 0, slang: s ? s.lang : null, skind: s ? s.kind : null});
-}
-
-// ---------- how to play: original file > repackaged original > converted (like Jellyfin's direct play / direct stream / transcode) ----------
-function videoOk() {
-  const c = info.video.codec;
-  return c === 'h264' ? info.video.depth <= 8 : c === 'hevc' ? caps.hevc : c === 'av1' ? caps.av1 : c === 'vp9' ? caps.vp9 : false;
-}
-function naturalMode() {
-  const s = info.subs.find(x => x.i === cur.s);
-  if (s && (!s.text || !caps.subs || jasFailed)) return 3;          // picture subtitles (or no subtitle renderer): burn them in
-  if (quality in LEVEL_FOR || !videoOk()) return 2;
-  const a = info.audios.find(x => x.i === cur.a), first = info.audios[0];
-  const box = ['mkv', 'matroska', 'webm'].includes(info.container) ? caps.mkv : ['mp4', 'm4v', 'mov'].includes(info.container);
-  const directOk = box && (!a || (first && a.i === first.i && caps.audio[a.codec]));
-  if (NET === 'home') return directOk ? 0 : 1;                      // home network: the original file, instant seeking
-  if (quality === 'original') return 1;
-  const bw = bwGet(30 * 60e3);                                       // away: original only if a recent measurement beats the file's peak
-  return bw && bw >= 1.35 * (info.peak || info.bitrate * 2.2) ? 1 : 2;
-}
-const FORCE = MODES.indexOf((location.search.match(/[?&]force=([a-z+]+)/) || [])[1]);     // ?force=direct|remux|adaptive|burn (testing)
-const wantMode = () => (FORCE >= 0 && floor <= FORCE) ? FORCE : Math.max(naturalMode(), floor);
-
-// ---------- subtitles, drawn in the browser with libass (full anime styling + the release's own fonts) ----------
-const subUrl = i => '/stream/' + info.id + '/sub/' + i + '.ass?_t=' + encodeURIComponent(info.tok);
-function dropSubs() { if (jas) { try { jas.destroy(); } catch (e) {} jas = null; } }
-function syncSubs() {
-  const s = info.subs.find(x => x.i === cur.s);
-  if (!s || mode === 3 || !s.text) { if (jas) { try { jas.freeTrack(); } catch (e) {} } return; }
-  try {
-    if (!jas) {
-      jas = new JASSUB({video: v, subUrl: subUrl(s.i), workerUrl: CFG.jassub + 'jassub-worker.js', wasmUrl: CFG.jassub + 'jassub-worker.wasm',
-        modernWasmUrl: CFG.jassub + 'jassub-worker-modern.wasm', fallbackFont: 'liberation sans',
-        availableFonts: Object.assign({'liberation sans': CFG.jassub + 'default.woff2'}, info.fonts),
-        ...(/[?&]subsmain/.test(location.search) ? {onDemandRender: false, offscreenRender: false} : {})});   // simpler main-thread mode
-      jas.addEventListener('error', e => { log('subs-error', e && (e.error || e.message)); });
-    } else jas.setTrackByUrl(subUrl(s.i));
-  } catch (e) {
-    log('subs-error', e && e.message); jasFailed = true; dropSubs();
-    if (wantMode() !== mode) reload();
-  }
-}
-
-// ---------- stream ----------
-function stopStream() {
-  if (psid) { navigator.sendBeacon('/api/stop', new URLSearchParams({d: dev, psid})); psid = ''; }
-}
-const hlsPolicy = (ttfb, max) => ({default: {maxTimeToFirstByteMs: ttfb, maxLoadTimeMs: max,
-  timeoutRetry: {maxNumRetry: 2, retryDelayMs: 500, maxRetryDelayMs: 2000}, errorRetry: {maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 6000}}});
-const hlsIndex = k => ladder().length - 1 - k;              // hls.js orders levels lowest bitrate first; our ladders are best first
-function startLevelFor(bw) {
-  if (quality in LEVEL_FOR) return hlsIndex(LEVEL_FOR[quality]);
-  if (!bw) return hlsIndex(3);                                 // unknown connection: start light, the player ramps up within seconds
-  const k = ladder().findIndex(([w, b]) => b + 160000 <= 0.7 * bw);
-  // away from home never start above 720p: a fast start matters more than the first few seconds' sharpness
-  return hlsIndex(Math.max(k < 0 ? ladder().length - 1 : k, NET === 'away' ? 2 : 0));
-}
-async function load(at, play) {
-  const seq = ++loadSeq;
-  stopStream(); clearTimeout(wdT); clearInterval(monT);
-  started = false; netErr = medErr = 0; loadAt = at > 0 ? at : 0; t0 = performance.now(); stalls = [];
-  P.classList.add('buffering');
-  if (hls) { hls.destroy(); hls = null; }
-  mode = wantMode();
-  const bw = bwGet();
-  if (mode === 0) {
-    v.src = '/stream/' + info.id + '/file?_t=' + encodeURIComponent(info.tok);
-    if (loadAt) v.addEventListener('loadedmetadata', () => { if (mode === 0) v.currentTime = loadAt; }, {once: true});
-    wdT = setTimeout(() => { if (mode === 0 && v.readyState < 2 && !v.paused) fallback('no picture after 12 s'); }, 12000);
-  } else {
-    psid = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-    if (mode === 1 && NET === 'away' && quality === 'auto' && FORCE < 0)
-      wdT = setTimeout(() => { if (!started && mode === 1 && !v.paused) stepDown('no picture after 7 s'); }, 7000);
-    const q = {m: ['', 'remux', 'abr', 'transcode'][mode], hevc: useHevc() ? 1 : 0, a: cur.a, s: mode === 3 && cur.s >= 0 ? cur.s : '', d: dev, psid,
-      q: NET === 'home' || bw >= 13e6 ? 'max' : bw >= 9e6 ? 'high' : bw >= 6e6 || !bw ? '1080' : bw >= 3.5e6 ? '720' : '480',
-      vc: ['h264'].concat(['hevc', 'av1', 'vp9'].filter(c => caps[c])).join(','), ac: Object.keys(caps.audio).filter(c => caps.audio[c]).join(','),
-      _t: info.tok};
-    const url = '/stream/' + info.id + '/master.m3u8?' + new URLSearchParams(q);
-    if (window.Hls && Hls.isSupported()) {
-      const away = NET === 'away';
-      hls = new Hls({startPosition: loadAt || -1, maxBufferLength: away ? 90 : 45, maxMaxBufferLength: 240, maxBufferSize: 200e6,
-        backBufferLength: 60, maxBufferHole: 0.5, progressive: mode === 1, startFragPrefetch: true,
-        startLevel: mode === 2 ? startLevelFor(bw) : -1, abrEwmaDefaultEstimate: bw || 4e6, abrBandWidthFactor: 0.8, abrBandWidthUpFactor: 0.7,
-        manifestLoadPolicy: hlsPolicy(60000, 90000), playlistLoadPolicy: hlsPolicy(60000, 90000), fragLoadPolicy: hlsPolicy(60000, 180000)});
-      hls.on(Hls.Events.ERROR, (_, d) => {
-        if (!d.fatal) return;
-        log('hls-error', d.details + (d.response && d.response.code ? ' ' + d.response.code : ''));
-        if (useHevc() && /IncompatibleCodecs|AddCodec|bufferAppend|fragParsing/.test(d.details)) {
-          hevcFailed = true; log('hevc-off', d.details); return load(started ? v.currentTime : loadAt, true);
-        }
-        if (/IncompatibleCodecs|AddCodec/.test(d.details)) return fallback(d.details);
-        const resumeAt = started ? v.currentTime : loadAt;
-        if (d.type === Hls.ErrorTypes.NETWORK_ERROR && netErr++ < 3) setTimeout(() => hls && hls.startLoad(resumeAt), 1500);
-        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR && medErr++ < 1) { hls.recoverMediaError(); v.currentTime = resumeAt; }
-        else fallback(d.details);
-      });
-      if (mode === 2) {
-        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (quality in LEVEL_FOR && hls) hls.currentLevel = hlsIndex(LEVEL_FOR[quality]); });
-        hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => { if (started) log('level', modeText()); });
-      }
-      hls.loadSource(url); hls.attachMedia(v);
-    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      v.src = url;
-      if (loadAt) v.addEventListener('loadedmetadata', () => { v.currentTime = loadAt; }, {once: true});
-    } else return fail("This browser can't play video streams.");
-  }
-  monT = setInterval(monitor, 2000);
-  syncSubs();
-  if (play) tryPlay(); else { P.classList.remove('buffering'); P.classList.add('paused'); }
-}
-let lastStats = 0;
-function monitor() {
-  if (!started) {        // still starting: if the original is clearly too heavy for this connection, switch now
-    const est = hls ? hls.bandwidthEstimate : 0, need = 1.15 * (info.peak || info.bitrate * 2.2);
-    if (mode === 1 && NET === 'away' && quality === 'auto' && FORCE < 0 && est && est < need) stepDown('starting too slowly: ' + mbps(est) + ' < ' + mbps(need));
-    return;
-  }
-  if (v.paused) return;
-  if (performance.now() - lastStats > 60000) {                     // a line a minute in the player log: what quality, how much buffered
-    lastStats = performance.now();
-    log('stats', modeText() + ' · buffer ' + bufferedAhead().toFixed(0) + ' s · connection ' + (hls && hls.bandwidthEstimate ? mbps(hls.bandwidthEstimate) : '?') + ' · at ' + fmt(v.currentTime));
-  }
-  if (hls && hls.bandwidthEstimate > 0 && performance.now() - lastBwSave > 10000) { lastBwSave = performance.now(); bwPut(hls.bandwidthEstimate); }
-  if (quality !== 'auto' || FORCE >= 0) return;
-  const ahead = bufferedAhead(), est = hls ? hls.bandwidthEstimate : 0, need = 1.15 * (info.peak || info.bitrate * 2.2);
-  // step down instead of buffering: original file -> original via a big buffer -> adaptive quality
-  if (mode === 0 && recentStalls() >= 1) return stepDown('stalled while direct playing');
-  if (mode === 1 && (recentStalls() >= 2 || (NET === 'away' && ahead < 12 && est && est < need)))
-    return stepDown('connection ' + mbps(est) + ' < needed ' + mbps(need) + ', ' + ahead.toFixed(0) + ' s buffered');
-}
-function stepDown(why) {
-  log('step-down', MODES[mode] + ': ' + why);
-  floor = mode + 1;
-  if (mode === 1) toast('Adapting quality to your connection');
-  const at = started ? v.currentTime : loadAt;
-  if (!started) store.set(bwKey, null);      // the remembered speed was wrong for this network: measure afresh
-  load(at, true);
-}
-function fallback(reason) {
-  log('fallback', MODES[mode] + ' failed: ' + reason);
-  if (mode >= 3) return fail("Couldn't play this (" + reason + ').');
-  floor = mode + 1;
-  load(started ? v.currentTime : loadAt, true);
-}
-v.addEventListener('error', () => { if (mode === 0 && v.getAttribute('src')) fallback('direct play error ' + (v.error ? v.error.code + ' ' + (v.error.message || '') : '')); });
-v.addEventListener('loadedmetadata', () => { if (mode === 0 && !v.videoWidth) fallback('video codec not supported by this browser'); });
-function tryPlay() {
-  const p = v.play();
-  if (p) p.catch(err => {
-    if (err && err.name === 'AbortError') return;
-    P.classList.remove('buffering'); P.classList.add('paused');
-    if (!started) cover.classList.add('blocked'); else showUI(true);
-  });
-}
-function reload(msg) { const t = started ? v.currentTime : loadAt, play = !v.paused || !started; if (msg) toast(msg); load(t, play); }
-function fail(msg) { stopStream(); $('#errmsg').textContent = msg; $('#errsheet').hidden = false; cover.classList.add('gone'); }
-
-// ---------- progress (synced to Jellyfin, per person) ----------
-const NOSAVE = /[?&]noprogress/.test(location.search);       // testing knob: don't touch anyone's watch progress
-function save(mode) {
-  if (!started || NOSAVE) return;
-  const t = v.currentTime, played = playedAt(t);
-  if (!mode && Math.abs(t - lastSaved) < 4) return;
-  if (t < 15 && !played && info.pos < 15) return;
-  lastSaved = t;
-  const body = new URLSearchParams({id: info.id, pos: t.toFixed(1), played: played ? 1 : 0});
-  if (mode === 'beacon') navigator.sendBeacon('/api/progress', body);
-  else fetch('/api/progress', {method: 'POST', body, keepalive: true}).catch(() => {});
-}
-setInterval(() => { if (!v.paused) save(); }, 10000);
-document.addEventListener('visibilitychange', () => { if (document.hidden) save('beacon'); });
-addEventListener('pagehide', () => { save('beacon'); stopStream(); });
-
-// ---------- render ----------
-function render() {
-  const t1 = info.code ? info.show : info.show, t2 = info.code ? info.code + ' · ' + info.name : '';
-  $('.topbar b').textContent = t1; $('.topbar span').textContent = t2;
-  document.title = (info.code ? info.code + ' · ' : '') + info.show;
-  $('#back').href = '/title/' + info.series + (info.code ? '#ep-' + info.id : '');
-  v.poster = info.still;
-  $('.cover .cbg').src = info.backdrop;
-  $('.cover .brand').innerHTML = info.logo ? '<img class="logo" src="' + esc(info.logo) + '" alt="' + esc(info.show) + '">' : '<h2>' + esc(info.show) + '</h2>';
-  $('.cover .ep').textContent = t2;
-  $('#nextbtn').hidden = !info.next;
-  if (info.next) {
-    $('#nextbtn').title = 'Next episode: ' + info.next.code + ' · ' + info.next.name + ' (N)';
-    upnext.querySelector('img').src = info.next.thumb;
-    upnext.querySelector('b').textContent = info.next.code + ' · ' + info.next.name;
-  }
-  upnext.classList.remove('show', 'counting'); P.classList.remove('credits');
-  $('#endsheet').hidden = true; $('#tvsheet').hidden = true; $('#errsheet').hidden = true;
-  drawChapters();
-  if ('mediaSession' in navigator) {
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({title: info.code ? info.code + ' · ' + info.name : info.show, artist: info.show,
-        artwork: [{src: info.still, sizes: '1280x720'}]});
-      const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
-      h('play', () => v.play()); h('pause', () => v.pause());
-      h('seekbackward', () => jump(-10)); h('seekforward', () => jump(10));
-      h('seekto', d => { v.currentTime = d.seekTime; });
-      h('nexttrack', info.next ? () => playNext() : null);
-    } catch (e) {}
-  }
-}
-function drawChapters() {
-  const box = $('.chaps'); box.innerHTML = ''; const d = dur(); if (!d) return;
-  info.chapters.forEach(c => { if (c.t > 1 && c.t < d - 1) { const m = document.createElement('div'); m.className = 'chap'; m.style.left = (100 * c.t / d) + '%'; box.appendChild(m); } });
-}
-function drawBuffer() {
-  const d = dur(); if (!d) return;
-  const t = v.currentTime; let end = t;
-  for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 1 && v.buffered.end(i) > end) end = v.buffered.end(i);
-  $('.buf').style.width = (100 * end / d) + '%';
-}
-function onTime() {
-  const t = v.currentTime, d = dur();
-  if (!dragging && d) { const p = (100 * t / d) + '%'; $('.played').style.width = p; $('.knob').style.left = p; }
-  $('.time').textContent = fmt(t) + ' / ' + fmt(d);
-  const i = info.intro, rc = info.recap;
-  const inIntro = !!(i && t >= i[0] && t < i[1] - 2), inRecap = !!(rc && t >= rc[0] && t < rc[1] - 2);
-  if (inRecap || inIntro) skipLabel.textContent = inRecap ? 'Skip Recap' : 'Skip Opening';
-  $('.skip').classList.toggle('show', inIntro || inRecap);
-  const c = creditsAt(), show = !!(info.next && c != null && t >= c && !upDismissed && started);
-  if (info.next && c != null && t >= c - 90) prefetchNext();
-  if (show !== upnext.classList.contains('show')) upnext.classList.toggle('show', show);
-  drawBuffer();
-}
-
-// ---------- next episode ----------
-let nextInfo = null, nextFetching = false;
-function prefetchNext() {
-  if (!info.next || nextFetching || (nextInfo && nextInfo.id === info.next.id)) return;
-  nextFetching = true;
-  fetch('/api/playinfo/' + info.next.id).then(r => r.ok ? r.json() : null).then(j => { nextInfo = j; }).catch(() => {}).finally(() => { nextFetching = false; });
-}
-async function playNext() {
-  clearTimeout(cdTimer);
-  const target = info.next; if (!target) return;
-  if (started) save('force');
-  upnext.classList.remove('show', 'counting');
-  cover.classList.remove('gone', 'blocked');
-  try {
-    let fresh = nextInfo && nextInfo.id === target.id ? nextInfo : null;
-    if (!fresh) { const r = await fetch('/api/playinfo/' + target.id); if (!r.ok) throw new Error(r.status); fresh = await r.json(); }
-    nextInfo = null;
-    stopStream(); dropSubs(); info = fresh; floor = mode === 2 && NET === 'away' ? 2 : 0;
-  } catch (e) { location.href = '/watch/' + target.id; return; }
-  upDismissed = false; lastSaved = -1;
-  history.replaceState(null, '', '/watch/' + info.id);
-  render(); chooseTracks(); buildPanel(panel.dataset.kind || 'tracks');
-  load(info.pos > 5 ? info.pos : 0, true);
-}
-function onEnded() {
-  save('force');
-  if (info.next) { upDismissed = false; upnext.classList.add('show', 'counting'); showUI(true); cdTimer = setTimeout(playNext, 8000); }
-  else { $('#endsheet').hidden = false; }
-}
-upnext.querySelector('.go').addEventListener('click', e => { e.stopPropagation(); playNext(); });
-upnext.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); clearTimeout(cdTimer); upDismissed = true; upnext.classList.remove('show', 'counting'); });
-
-// ---------- controls ----------
-const toggle = () => { if (v.paused) { tryPlay(); } else v.pause(); };
-const jump = s => { const d = dur(); v.currentTime = Math.min(Math.max(0, d - 1), Math.max(0, v.currentTime + s)); onTime(); };
-const setVol = x => { v.volume = Math.min(1, Math.max(0, x)); v.muted = v.volume === 0; store.set('htpc-vol', v.volume); };
-const isFs = () => document.fullscreenElement || document.webkitFullscreenElement;
-function toggleFs() {
-  if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  else if (P.requestFullscreen) P.requestFullscreen().then(() => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} }).catch(() => {});
-  else if (P.webkitRequestFullscreen) P.webkitRequestFullscreen();
-  else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-}
-const skipLabel = document.createElement('span'); $('.skip').prepend(skipLabel); $('.skip').childNodes.forEach(n => { if (n.nodeType === 3) n.remove(); });
-const skipIntro = () => {
-  if (!$('.skip').classList.contains('show')) return;
-  const t = v.currentTime, rc = info.recap;
-  if (rc && t >= rc[0] && t < rc[1]) { v.currentTime = rc[1]; toast('Skipped the recap'); }
-  else if (info.intro) { v.currentTime = info.intro[1]; toast('Skipped the opening'); }
-};
-$('#pp').onclick = toggle; $('.center .big').onclick = toggle;
-$('#rw').onclick = () => jump(-10); $('#ff').onclick = () => jump(10);
-$('#crw').onclick = () => { jump(-10); ripple('l'); }; $('#cff').onclick = () => { jump(10); ripple('r'); };
-$('#fs').onclick = toggleFs; $('#nextbtn').onclick = () => playNext();
-$('.skip').onclick = e => { e.stopPropagation(); skipIntro(); };
-$('#mute').onclick = () => { v.muted = !v.muted; if (!v.muted && v.volume === 0) setVol(.6); };
-$('#vr').oninput = e => setVol(+e.target.value);
-$('#pip').hidden = !(document.pictureInPictureEnabled && v.requestPictureInPicture);
-$('#pip').onclick = () => document.pictureInPictureElement ? document.exitPictureInPicture() : v.requestPictureInPicture().catch(() => {});
-$('#tapplay').onclick = e => { e.stopPropagation(); cover.classList.remove('blocked'); tryPlay(); };
-$('#retry').onclick = () => { $('#errsheet').hidden = true; cover.classList.remove('gone'); reload(); };
-
-function drawPP() { $('#pp').innerHTML = v.paused ? CFG.icons.play : CFG.icons.pause; $('.center .big').innerHTML = v.paused ? CFG.icons.play : CFG.icons.pause; }
-function drawVol() { $('#mute').innerHTML = v.muted || v.volume === 0 ? CFG.icons.mute : CFG.icons.vol; $('#vr').value = v.muted ? 0 : v.volume; }
-function drawFs() { $('#fs').innerHTML = isFs() ? CFG.icons.fsx : CFG.icons.fs; }
-document.addEventListener('fullscreenchange', drawFs); document.addEventListener('webkitfullscreenchange', drawFs);
-
-// ---------- seek bar ----------
-const frac = e => { const r = seek.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
-const chapterAt = t => { let n = ''; for (const c of info.chapters) if (c.t <= t + .5) n = c.name; return n; };
-function trickAt(t) {         // Netflix-style preview frame from Jellyfin's 10x10 thumbnail tiles
-  const k = info.trick, box = $('.tthumb');
-  tip.classList.toggle('has-thumb', !!k);
-  if (!k) return;
-  const i = Math.max(0, Math.min(k.n - 1, Math.floor(t / k.every))), per = k.tw * k.th, tile = Math.floor(i / per), j = i % per;
-  const sx = 224 / k.w, sy = 126 / k.h;
-  box.style.backgroundImage = 'url(/stream/' + info.id + '/trick/' + k.w + '/' + tile + '.jpg?_t=' + encodeURIComponent(info.tok) + ')';
-  box.style.backgroundSize = (k.tw * 224) + 'px ' + (k.th * 126) + 'px';
-  box.style.backgroundPosition = (-(j % k.tw) * k.w * sx) + 'px ' + (-Math.floor(j / k.tw) * k.h * sy) + 'px';
-}
-function hover(e) {
-  const f = frac(e), t = f * dur(), w = seek.clientWidth, ch = chapterAt(t);
-  $('.ttext', tip).innerHTML = '<span>' + fmt(t) + '</span>' + (ch ? '<small>' + esc(ch) + '</small>' : '');
-  trickAt(t);
-  tip.style.left = Math.min(w - tip.offsetWidth / 2, Math.max(tip.offsetWidth / 2, f * w)) + 'px';
-  $('.hov').style.width = (f * 100) + '%';
-  return f;
-}
-seek.addEventListener('pointermove', e => { const f = hover(e); if (dragging) { $('.played').style.width = $('.knob').style.left = (f * 100) + '%'; } });
-seek.addEventListener('pointerleave', () => { $('.hov').style.width = 0; });
-seek.addEventListener('pointerdown', e => { e.stopPropagation(); dragging = true; seek.classList.add('drag'); seek.setPointerCapture(e.pointerId);
-  const f = hover(e); $('.played').style.width = $('.knob').style.left = (f * 100) + '%'; showUI(true); });
-seek.addEventListener('pointerup', e => { if (!dragging) return; dragging = false; seek.classList.remove('drag'); v.currentTime = frac(e) * dur(); armIdle(); });
-seek.addEventListener('pointercancel', () => { dragging = false; seek.classList.remove('drag'); });
-
-// ---------- show / hide controls, taps ----------
-const panelOpen = () => panel.classList.contains('show');
-function showUI(stay) { P.classList.remove('idle'); clearTimeout(idleT); if (!stay) armIdle(); }
-function armIdle() { clearTimeout(idleT); idleT = setTimeout(() => { if (!v.paused && !panelOpen() && !dragging) P.classList.add('idle'); }, 3200); }
-P.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showUI(); });
-let lastTap = 0, tapT = null;
-const stage = $('.stage');
-stage.addEventListener('click', e => {
-  if (panelOpen()) { closePanel(); return; }
-  if (e.pointerType === 'mouse' || (!e.pointerType && matchMedia('(hover:hover)').matches)) { toggle(); showUI(); return; }
-  const now = Date.now(), x = e.clientX / innerWidth;
-  if (now - lastTap < 320) {
-    clearTimeout(tapT); lastTap = 0;
-    if (x < .38) { jump(-10); ripple('l'); } else if (x > .62) { jump(10); ripple('r'); } else toggleFs();
-    return;
-  }
-  lastTap = now;
-  tapT = setTimeout(() => { if (P.classList.contains('idle')) showUI(); else if (!v.paused) P.classList.add('idle'); }, 300);
-});
-stage.addEventListener('dblclick', e => { if (matchMedia('(hover:hover)').matches) { toggleFs(); } });
-function ripple(side) { const r = $('.rip.' + side); r.classList.add('show'); clearTimeout(r._t); r._t = setTimeout(() => r.classList.remove('show'), 450); }
-document.addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'INPUT') return;
-  const k = e.key.toLowerCase();
-  const map = {' ': toggle, k: toggle, f: toggleFs, m: () => { v.muted = !v.muted; }, arrowleft: () => jump(-10), j: () => jump(-10),
-    arrowright: () => jump(10), l: () => jump(10), arrowup: () => setVol(v.volume + .1), arrowdown: () => setVol(v.volume - .1),
-    n: () => info.next && playNext(), s: skipIntro, escape: closePanel, c: () => openPanel('tracks')};
-  if (map[k]) { e.preventDefault(); map[k](); showUI(); }
-});
-
-// ---------- audio / subtitles / quality ----------
-function openPanel(kind) {
-  if (panelOpen() && panel.dataset.kind === kind) return closePanel();
-  buildPanel(kind); panel.classList.add('show'); showUI(true);
-}
-function closePanel() { panel.classList.remove('show'); armIdle(); }
-function col(title, opts, sel, pick) {
-  const c = document.createElement('div'); c.className = 'col';
-  c.innerHTML = '<h5>' + esc(title) + '</h5>';
-  opts.forEach(([val, label, sub]) => {
-    const b = document.createElement('button'); b.className = 'opt' + (val === sel ? ' on' : '');
-    b.innerHTML = CFG.icons.check.replace('class="ic"', 'class="ic ck"') + '<span>' + esc(label) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span>';
-    b.onclick = e => { e.stopPropagation(); if (val !== sel) pick(val); closePanel(); };
-    c.appendChild(b);
-  });
-  return c;
-}
-function buildPanel(kind) {
-  panel.dataset.kind = kind; panel.innerHTML = '';
-  if (kind === 'tracks') {
-    panel.appendChild(col('Audio', info.audios.map(a => [a.i, a.label, a.detail]), cur.a, i => { cur.a = i; rememberTracks();
-      const sub = info.subs.find(x => x.i === cur.s), au = info.audios.find(x => x.i === i);
-      if (info.anime && au && sub && au.lang.startsWith('en') && sub.lang === 'eng' && sub.kind !== 'signs') {
-        const signs = info.subs.find(x => x.lang === 'eng' && x.kind === 'signs'); cur.s = signs ? signs.i : -1; rememberTracks();
-      } else if (info.anime && au && !au.lang.startsWith('en') && (!sub || sub.kind === 'signs')) {
-        const full = info.subs.find(x => x.lang === 'eng' && x.kind === 'full'); if (full) { cur.s = full.i; rememberTracks(); }
-      }
-      reload('Switching audio…'); }));
-    panel.appendChild(col('Subtitles', [[-1, 'Off', '']].concat(info.subs.map(s => [s.i, s.label, s.detail || (s.kind === 'signs' ? 'Signs & Songs' : '')])),
-      cur.s, i => { cur.s = i; rememberTracks();
-        if (wantMode() !== mode) reload(i < 0 ? 'Subtitles off' : 'Switching subtitles…');
-        else { syncSubs(); toast(i < 0 ? 'Subtitles off' : 'Subtitles: ' + (info.subs.find(x => x.i === i) || {}).label); } }));
-  } else {
-    const q = col('Quality', CFG.qualities.map(([k, l, s]) => [k, l, s]), quality, k => { quality = k; floor = 0; store.set('htpc-q-' + CFG.net, k); reload('Switching quality…'); });
-    const now = document.createElement('div'); now.className = 'now';
-    now.innerHTML = '<b>Now playing</b>' + esc(modeText()) + (bwGet() ? '<br>Connection ≈ ' + mbps(bwGet()) : '');
-    q.insertBefore(now, q.children[1]);
-    panel.appendChild(q);
-    panel.appendChild(col('Speed', [[.75, '0.75×'], [1, 'Normal'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2×']].map(([x, l]) => [x, l, '']),
-      v.playbackRate, x => { v.playbackRate = x; toast(x === 1 ? 'Normal speed' : x + '× speed'); }));
-  }
-}
-$('#ccbtn').onclick = e => { e.stopPropagation(); openPanel('tracks'); };
-$('#setbtn').onclick = e => { e.stopPropagation(); openPanel('quality'); };
-panel.addEventListener('click', e => e.stopPropagation());
-
-// ---------- continue on the TV ----------
-$('#tvbtn').onclick = async e => {
-  e.stopPropagation();
-  const t = v.currentTime || info.pos || 0;
-  v.pause(); save('force'); toast('Starting on the TV…');
-  try {
-    const r = await fetch('/api/tv', {method: 'POST', body: new URLSearchParams({id: info.id, pos: t.toFixed(1)})});
-    const j = await r.json();
-    if (!j.ok) return toast(j.msg);
-    stopStream(); if (hls) { hls.destroy(); hls = null; }
-    $('#tvmsg').textContent = (info.code ? info.code + ' · ' : '') + (info.name || info.show) + ' from ' + fmt(t);
-    $('#tvsheet').hidden = false; P.classList.remove('buffering');
-  } catch (err) { toast("Couldn't reach the TV."); }
-};
-$('#here').onclick = () => { $('#tvsheet').hidden = true; load(v.currentTime || info.pos, true); };
-
-// ---------- toast ----------
-let toastT = null;
-function toast(msg) { const t = $('.toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200); }
-
-// ---------- video events ----------
-v.addEventListener('playing', () => {
-  const now = performance.now();
-  if (!started) {
-    started = true; clearTimeout(wdT);
-    log('start', ((now - t0) / 1000).toFixed(2) + ' s to first frame at ' + fmt(loadAt) + ' (' + (info.bitrate / 1e6).toFixed(1) + ' Mbps file, ' + info.video.codec + ')');
-    if (mode === 0 && info.audios.length) setTimeout(() => {      // Chromium plays silently if it can't decode the audio
-      if (mode === 0 && 'webkitAudioDecodedByteCount' in v && v.webkitAudioDecodedByteCount === 0 && !v.paused) fallback('audio not decodable');
-    }, 4000);
-  }
-  if (seekT0) { const d = (now - seekT0) / 1000; if (d > 1.2) log('seek', d.toFixed(2) + ' s'); seekT0 = 0; }
-  else if (waitT0) { const d = (now - waitT0) / 1000; if (d > 1) { log('stall', d.toFixed(2) + ' s at ' + fmt(v.currentTime) + ' · ' + modeText()); stalls.push(performance.now()); } }
-  waitT0 = 0;
-  P.classList.remove('buffering', 'paused'); cover.classList.add('gone'); cover.classList.remove('blocked'); drawPP(); armIdle();
-});
-v.addEventListener('waiting', () => { P.classList.add('buffering'); if (started && !waitT0 && !seekT0) waitT0 = performance.now(); });
-v.addEventListener('seeking', () => { P.classList.add('buffering'); if (started) seekT0 = performance.now(); });
-v.addEventListener('canplay', () => P.classList.remove('buffering'));
-v.addEventListener('seeked', () => { P.classList.remove('buffering'); save(); if (v.paused) seekT0 = 0; });
-v.addEventListener('pause', () => { P.classList.add('paused'); drawPP(); showUI(true); save('force'); });
-v.addEventListener('play', () => { P.classList.remove('paused'); drawPP(); armIdle(); });
-v.addEventListener('timeupdate', onTime);
-v.addEventListener('progress', drawBuffer);
-v.addEventListener('durationchange', () => { drawChapters(); onTime(); });
-v.addEventListener('ended', onEnded);
-v.addEventListener('volumechange', drawVol);
-
-const vol = store.get('htpc-vol', 1); v.volume = Math.min(1, Math.max(0, +vol || 1));
-drawPP(); drawVol(); drawFs(); render(); chooseTracks(); buildPanel('tracks');
-const startAt = CFG.start != null ? CFG.start : (info.pos > 5 ? info.pos : 0);
-load(startAt, true);
-if (startAt > 5) toast('Resuming from ' + fmt(startAt));
-showUI();
-})();
-"""
 
 
 ASSET_URLS, ASSET_FILES = {}, {}
 
 
+ASSET_DIR = Path(__file__).resolve().parent / "assets"          # the site's own CSS and JavaScript
+ASSET_TYPES = {".css": "text/css", ".js": "text/javascript"}
+
+
 def asset(name):
-    """URL of a shared stylesheet/script, served as a long-cached file whose name carries a hash of its content (so it
-    is downloaded once, and again only after it changes) instead of being repeated inside every page."""
+    """URL of a stylesheet/script in assets/, served as a long-cached file whose name carries a hash of its content (so
+    it is downloaded once, and again only after it changes) instead of being repeated inside every page."""
     if not ASSET_URLS:
-        for key, text, ctype in (("site.css", STYLE + STREAM_STYLE, "text/css"), ("site.js", SCRIPT + ";\n" + HOME_JS, "text/javascript"),
-                                 ("player.css", PLAYER_CSS, "text/css"), ("player.js", PLAYER_JS, "text/javascript")):
-            data = text.encode()
-            stem, ext = key.split(".")
-            url = f"/assets/{stem}.{hashlib.sha256(data).hexdigest()[:12]}.{ext}"
-            ASSET_URLS[key] = url
-            ASSET_FILES[url] = (data, gzip.compress(data, 9), ctype + "; charset=utf-8")
+        for f in sorted(ASSET_DIR.iterdir()):
+            if f.suffix in ASSET_TYPES:
+                data = f.read_bytes()
+                url = f"/assets/{f.stem}.{hashlib.sha256(data).hexdigest()[:12]}{f.suffix}"
+                ASSET_URLS[f.name] = url
+                ASSET_FILES[url] = (data, gzip.compress(data, 9), ASSET_TYPES[f.suffix] + "; charset=utf-8")
     return ASSET_URLS[name]
 
 
@@ -3149,51 +2074,6 @@ def meta_html(i, seasons=None, extra=()):
     bits += [f"<span>{esc(x)}</span>" for x in extra if x]
     return '<div class="meta">' + '<span class="dot">•</span>'.join(bits) + "</div>"
 
-
-DOWNLOADS_JS = r"""
-(() => {
-const box = document.getElementById('dl'), sum = document.getElementById('dlsum');
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const size = b => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : (b / 1e6).toFixed(0) + ' MB';
-const speed = b => b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB/s' : (b / 1e3).toFixed(0) + ' KB/s';
-const eta = s => s < 60 ? 'under a minute left' : s < 3600 ? Math.round(s / 60) + ' min left' : Math.floor(s / 3600) + ' h ' + Math.round(s % 3600 / 60) + ' min left';
-const ago = t => { const s = Date.now() / 1000 - t; return s < 90 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago'; };
-const LABEL = {downloading: 'Downloading', stalled: 'Waiting for peers', finding: 'Finding peers', queued: 'Queued', paused: 'Paused',
-  checking: 'Checking', error: 'Problem', importing: 'Finishing up', blocked: 'Couldn’t add', ready: 'Ready'};
-function card(i) {
-  const pct = (i.progress * 100).toFixed(i.progress < 1 ? 1 : 0);
-  let line;
-  if (i.state === 'ready') line = '<b class="ok">✓ ' + (i.kind === 'manga' ? 'Ready to read' : 'Ready to watch') + '</b> · finished ' + ago(i.finished || i.added);
-  else if (i.state === 'importing') line = 'Downloaded · moving it into your library…';
-  else if (i.state === 'blocked') line = 'Downloaded, but it couldn’t be added to your library. If you already have it, it’s cleared automatically; otherwise you get an alert.';
-  else if (i.state === 'error') line = 'qBittorrent reports a problem with this download';
-  else line = size(i.done) + ' of ' + size(i.size) + (i.speed ? ' · ' + speed(i.speed) : '') + (i.eta ? ' · ' + eta(i.eta) : '') +
-    ' · ' + i.seeds + ' seed' + (i.seeds === 1 ? '' : 's') + ' connected' + (i.swarm ? ' (' + i.swarm.toLocaleString() + ' sharing)' : '');
-  const poster = i.poster ? '<img src="' + esc(i.poster) + '" alt="" loading="lazy">' : '<div class="ph">' + (i.kind === 'manga' ? '📖' : i.kind === 'movie' ? '🎬' : '📺') + '</div>';
-  const title = i.link ? '<a href="' + esc(i.link) + '">' + esc(i.title) + '</a>' : esc(i.title);
-  const watch = i.state === 'ready' && i.link ? '<a class="btn small" href="' + esc(i.link) + '">▶ Watch</a>' : '';
-  return '<div class="dlc s-' + i.state + '">' + poster + '<div class="dli"><div class="dlt"><span>' + title + '</span><span class="chip st">' + LABEL[i.state] + '</span></div>' +
-    (i.sub ? '<div class="dls" title="' + esc(i.release) + '">' + esc(i.sub) + '</div>' : '') +
-    (i.state === 'ready' || i.state === 'blocked' ? '' : '<div class="bar" role="progressbar" aria-valuenow="' + pct + '"><i style="width:' + pct + '%"></i></div>') +
-    '<div class="dlm"><span>' + (i.state === 'ready' || i.state === 'importing' || i.state === 'blocked' ? '' : '<b>' + pct + '%</b> · ') + line + '</span>' + watch + '</div></div></div>';
-}
-function render(d) {
-  const active = d.items.filter(i => !['ready', 'importing', 'blocked'].includes(i.state)), finishing = d.items.filter(i => i.state === 'importing'),
-    blocked = d.items.filter(i => i.state === 'blocked'), ready = d.items.filter(i => i.state === 'ready');
-  const sec = (t, list) => list.length ? '<h3 class="dlsec">' + t + '</h3>' + list.map(card).join('') : '';
-  box.innerHTML = (d.items.length ? sec('Downloading', active) + sec('Finishing up', finishing) + sec('Couldn’t be added', blocked) + sec('Recently finished', ready)
-    : '<p class="muted">Nothing downloading right now.</p>');
-  sum.textContent = active.length ? active.length + ' active · ' + speed(d.speed) : '';
-}
-render(JSON.parse(document.getElementById('dldata').textContent));
-let busy = false;
-setInterval(async () => {
-  if (document.hidden || busy) return;
-  busy = true;
-  try { const r = await fetch('/api/downloads'); if (r.ok) render(await r.json()); } catch (e) {} finally { busy = false; }
-}, 2000);
-})();
-"""
 
 
 PLAY_OVERLAY = f'<div class="pl"><span>{icon("play")}</span></div>'
@@ -3229,7 +2109,7 @@ def row_html(title, cards, kind="wide", link=None):
 
 
 def delete_button(card, title, round_btn=True):
-    """Opens the 'Delete this?' confirmation (HOME_JS)."""
+    """Opens the 'Delete this?' confirmation (assets/site.js)."""
     if not card:
         return ""
     what = "movie" if card["kind"] == "movie" else "show"
@@ -3271,22 +2151,18 @@ class Handler(BaseHTTPRequestHandler):
         return ip in ("127.0.0.1", "::1") or ip.startswith("10.0.0.") or ip == home_public_ip()
 
     def authed(self):
+        """Everyone signs in with their own account (password + a code once per browser), at home and away."""
         self._refresh = None
         c = SimpleCookie(self.headers.get("Cookie") or "")
         user = remote_token_user(c[REMOTE_COOKIE].value) if REMOTE_COOKIE in c else None
-        prof = c[PROFILE_COOKIE].value if PROFILE_COOKIE in c else ""
-        self.remote_user = user                      # internet sign-ins are tied to one person
-        self.profile_set = bool(user) or prof in PROFILES
-        self.user = user or (prof if prof in PROFILES else OWNER)
-        if user:
-            # sliding sign-in: every visit pushes the expiry a year out again, so each device signs in only once
-            exp = int(time.time()) + REMOTE_SESSION_DAYS * 86400
-            self._refresh = (f"{REMOTE_COOKIE}={remote_token(user, exp)}; Max-Age={REMOTE_SESSION_DAYS * 86400}; "
-                             "Path=/; HttpOnly; SameSite=Lax; Secure")
-            return True
-        if self.public():
-            return False      # internet visitors always need the remote login (password + code)
-        return COOKIE in c and hmac.compare_digest(c[COOKIE].value, SESSION)
+        self.remote_user = user
+        self.user = user or OWNER
+        if not user:
+            return False
+        # sliding sign-in: every visit pushes the expiry a year out again, so each browser signs in only once
+        exp = int(time.time()) + REMOTE_SESSION_DAYS * 86400
+        self._refresh = f"{REMOTE_COOKIE}={remote_token(user, exp)}; Max-Age={REMOTE_SESSION_DAYS * 86400}; {cookie_flags(self.public())}"
+        return True
 
     def trusted_user(self):
         c = SimpleCookie(self.headers.get("Cookie") or "")
@@ -3339,8 +2215,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/logout":
             self.send_response(303)
             self.send_header("Location", "/login")
-            self.send_header("Set-Cookie", f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
-            self.send_header("Set-Cookie", f"{REMOTE_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; Secure")
+            self.send_header("Set-Cookie", f"{REMOTE_COOKIE}=; Max-Age=0; {cookie_flags(self.public())}")
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -3361,16 +2236,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path.startswith("/img/"):
             return self.image(url.path, qs)
         if url.path == "/":
-            if not self.profile_set:
-                return self.send(page(self.profiles_page(qs), title="aniserver · Who's watching?"))
             return self.send(page(self.home_page(qs), "home", self.host(), "aniserver", full=True, user=self.user))
         if url.path == "/account":
             return self.send(page(self.account_page(qs), "account", self.host(), "aniserver · Account", user=self.user))
-        if url.path == "/profiles":
-            u = (qs.get("u") or [""])[0]
-            if u in PROFILES and not self.remote_user:
-                return self.redirect("/", f"{PROFILE_COOKIE}={u}; Max-Age=31536000; Path=/; SameSite=Lax")
-            return self.send(page(self.profiles_page(qs), title="aniserver · Profiles"))
+        if url.path == "/profiles":                       # old "Who's watching?" page: your login says who you are
+            return self.redirect("/account")
         if url.path == "/api/downloads":
             try:
                 return self.send_json(live_downloads())
@@ -3399,7 +2269,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/shows":
             return self.send(page(self.shows_page(qs), "shows", self.host(), "aniserver · My Shows", user=self.user))
         if url.path == "/security":
-            if self.public():
+            if self.public() or self.user != OWNER:
                 return self.send(page("<p>Not found.</p>", "anime", self.host()), 404)
             return self.send(page(self.security_page(qs), "anime", self.host(), "aniserver · Remote access"))
         if url.path == "/manga":
@@ -3436,26 +2306,21 @@ class Handler(BaseHTTPRequestHandler):
             if too_many_fails(ip):
                 record_fail(ip, f.get("username", ""))
                 return self.redirect("/login?err=" + urllib.parse.quote("Too many failed attempts. Try again in 15 minutes."))
-            if self.public():
-                user, users = f.get("username", "").strip().lower(), remote_users()
-                rec = users.get(user)
-                pw_ok = bool(rec) and check_password(f.get("password", ""), rec["pw"])
-                remembered = pw_ok and self.trusted_user() == user
-                if remembered:
-                    counter = rec.get("last", 0)                # trusted device: no code needed
-                else:
-                    counter = totp_ok(rec["totp"], f.get("code"), rec.get("last", 0)) if pw_ok else None
-                if counter is None:
-                    record_fail(ip, user)
-                    return self.redirect("/login?" + urllib.parse.urlencode({"err": "Wrong username, password or code.", "next": self.next_url(f)}))
-                rec["last"] = counter
-                save_remote_users(users)
-                note_login(user, ip, remembered, self.headers.get("User-Agent") or "")
-                return self.redirect(self.next_url(f), session_cookies(user))
-            if hmac.compare_digest(f.get("password", ""), CONF["password"]):
-                return self.redirect(self.next_url(f), f"{COOKIE}={SESSION}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax")
-            record_fail(ip, "(home login)")
-            return self.redirect("/login?err=" + urllib.parse.quote("Wrong password."))
+            user, users = f.get("username", "").strip().lower(), remote_users()
+            rec = users.get(user)
+            pw_ok = bool(rec) and check_password(f.get("password", ""), rec["pw"])
+            remembered = pw_ok and self.trusted_user() == user
+            if remembered:
+                counter = rec.get("last", 0)                # trusted browser: no code needed
+            else:
+                counter = totp_ok(rec["totp"], f.get("code"), rec.get("last", 0)) if pw_ok else None
+            if counter is None:
+                record_fail(ip, user)
+                return self.redirect("/login?" + urllib.parse.urlencode({"err": "Wrong username, password or code.", "next": self.next_url(f)}))
+            rec["last"] = counter
+            save_remote_users(users)
+            note_login(user, ip, remembered, self.headers.get("User-Agent") or "")
+            return self.redirect(self.next_url(f), session_cookies(user, self.public()))
         if not self.authed():
             if self.path.startswith("/api/"):
                 return self.send_json({"ok": False, "msg": "Signed out. Reload the page."}, 401)
@@ -3465,7 +2330,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/account/password", "/account/jellyfin"):
             return self.account_post(f)
         if self.path.startswith("/security/"):
-            if self.public():
+            if self.public() or self.user != OWNER:
                 return self.redirect("/anime")
             return self.security_post(f)
         back = f.get("back") or "/"
@@ -3523,9 +2388,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(page('<div class="msg err">Jellyfin hasn\'t picked this file up yet. Try again in a minute.</div>', "shows", self.host()), 404)
         if authed:
             return self.redirect(f"/watch/{item}")
-        if self.public():
-            return self.redirect("/login?" + urllib.parse.urlencode({"next": f"/watch/{item}"}))
-        return self.redirect(f"{jellyfin_base(self.host(), False)}/web/#/details?id={item}")
+        return self.redirect("/login?" + urllib.parse.urlencode({"next": f"/watch/{item}"}))
 
     def image(self, path, qs):
         """Jellyfin artwork, proxied through this site so it loads on any network (home, Tailscale, internet)."""
@@ -3646,7 +2509,7 @@ class Handler(BaseHTTPRequestHandler):
     # --- streaming: home, title pages, player ---
     def account_page(self, qs):
         name, color = PROFILES.get(self.user, (self.user.title(), "#888"))
-        where = "from the internet" if self.remote_user else "on the home network"
+        where = "at home" if self.at_home() else "away from home"
         has_remote = self.user in remote_users()
         field = lambda n, ph, ac="new-password": (f'<input type="password" name="{n}" placeholder="{ph}" autocomplete="{ac}" '
                                                   f'{"minlength=12 " if n != "current" else ""}required>')
@@ -3655,15 +2518,12 @@ class Handler(BaseHTTPRequestHandler):
 {field("current", "Current website password", "current-password")}{field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}
 <button>Change website password</button></form>
 <p class="hint">Your authenticator code stays the same. Your other devices get signed out and need the new password (and a code) once.</p>"""
-        elif self.remote_user is None and not self.public():
-            website = '<p class="hint">This profile has no internet sign-in yet. <a href="/security">Set one up</a> (works at home).</p>'
         else:
             website = '<p class="hint">This profile has no internet sign-in.</p>'
-        switch = '' if self.remote_user else '<a class="btn ghost" href="/profiles?switch=1">Switch profile</a>'
         return f"""{msg_html(qs)}<h2>Account</h2>
 <div class="acct"><div class="card acard"><div class="who1"><div class="avatar big" style="background:{color}">{esc(name[0])}</div>
 <div><b>{esc(name)}</b><div class="muted">Signed in {where}</div></div></div>
-<div class="row">{switch}<a class="btn ghost" href="/logout">Log out</a></div></div>
+<div class="row"><a class="btn ghost" href="/logout">Log out</a></div></div>
 <div class="card acard"><h3>Website password</h3><p class="muted">For signing in to {esc(CONF.get("public_host") or "this website")} away from home.</p>{website}</div>
 <div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")} (user <b>{esc(self.user)}</b>).</p>
 <form method="post" action="/account/jellyfin" class="pwform">{field("current", "Current Jellyfin password", "current-password")}
@@ -3686,18 +2546,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/account?err=" + urllib.parse.quote(err))
         msg = urllib.parse.quote(f"{what} password changed.")
         if what == "Website" and self.remote_user:      # keep this device signed in under the new password
-            return self.redirect("/account?ok=" + msg, session_cookies(self.user))
+            return self.redirect("/account?ok=" + msg, session_cookies(self.user, self.public()))
         return self.redirect("/account?ok=" + msg)
-
-    def profiles_page(self, qs):
-        if self.remote_user:
-            name, color = PROFILES.get(self.user, (self.user.title(), "#888"))
-            return f"""<div class="who"><div><h1>Signed in as {esc(name)}</h1><div class="ps">
-<a href="/"><div class="av" style="background:{color}">{esc(name[0])}</div>Continue as {esc(name)}</a></div>
-<p class="hint" style="margin-top:30px">Your watch history is your own. <a href="/logout">Log out</a></p></div></div>"""
-        cards = "".join(f'<a href="/profiles?u={u}"><div class="av" style="background:{c}">{esc(n[0])}</div>{esc(n)}</a>'
-                        for u, (n, c) in PROFILES.items())
-        return f'<div class="who"><div><h1>Who\'s watching?</h1><div class="ps">{cards}</div></div></div>'
 
     def fetch_all(self, **jobs):
         futs = {k: POOL.submit(*v) for k, v in jobs.items()}
@@ -4226,20 +3076,16 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
     def login_form(self, qs):
         err = f'<div class="msg err">{html.escape(qs["err"][0])}</div>' if "err" in qs else ""
         nxt = f'<input type="hidden" name="next" value="{html.escape((qs.get("next") or ["/"])[0])}">'
-        if self.public():
-            trusted = self.trusted_user()
-            code = ("" if trusted else '<input type="text" name="code" placeholder="6-digit code from your authenticator app" '
-                    'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" required>')
-            note = ('<p class="hint">This device is remembered, so no code needed.</p>' if trusted else
-                    '<p class="hint">You only need the code once in each browser. A private window, an aniserver icon on your '
-                    'home screen, or a link opened inside another app counts as a new browser.</p>')
-            return f"""<div class="login"><div class="brand"><i></i>aniserver</div>{err}
+        trusted = self.trusted_user()
+        code = ("" if trusted else '<input type="text" name="code" placeholder="6-digit code from your authenticator app" '
+                'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" required>')
+        note = ('<p class="hint">This device is remembered, so no code needed.</p>' if trusted else
+                '<p class="hint">You only need the code once in each browser. A private window, an aniserver icon on your '
+                'home screen, or a link opened inside another app counts as a new browser.</p>')
+        return f"""<div class="login"><div class="brand"><i></i>aniserver</div>{err}
 <form method="post" action="/login">{nxt}<input type="text" name="username" placeholder="Username" autocomplete="username" value="{html.escape(trusted or '')}" {'' if trusted else 'autofocus'} required>
 <input type="password" name="password" placeholder="Password" autocomplete="current-password" {'autofocus' if trusted else ''} required>
 {code}<button type="submit">Log in</button>{note}</form></div>"""
-        return f"""<div class="login"><div class="brand"><i></i>aniserver</div>{err}
-<form method="post" action="/login">{nxt}<input type="password" name="password" placeholder="Password" autofocus required>
-<button type="submit">Log in</button></form></div>"""
 
     # --- remote access setup (home network / Tailscale only) ---
     def security_page(self, qs, setup=None):
@@ -4251,7 +3097,7 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
 <td class="act"><form method="post" action="/security/start" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
 <input type="hidden" name="user" value="{u}"><input type="password" name="pw" placeholder="New remote password (12+ chars)" minlength="12" required style="width:auto">
 <input type="password" name="pw2" placeholder="Repeat" minlength="12" required style="width:auto"><button class="small">{'Reset' if on else 'Set up'}</button></form>
-{f'<form method="post" action="/security/disable"><input type="hidden" name="user" value="{u}"><button class="ghost small">Turn off</button></form>' if on else ''}</td></tr>""")
+{f'<form method="post" action="/security/disable"><input type="hidden" name="user" value="{u}"><button class="ghost small">Turn off</button></form>' if on and u != OWNER else ''}</td></tr>""")
         public = CONF.get("public_host")
         intro = f"""{msg_html(qs)}<h2>Remote access</h2>
 <p class="hint">This page only works at home or over Tailscale. From the internet{f' (<b>https://{html.escape(public)}</b>)' if public else ''},
@@ -4281,7 +3127,7 @@ the website asks for a username, the remote password set here, and a 6-digit cod
             pw = f.get("pw", "")
             if len(pw) < 12 or pw != f.get("pw2"):
                 return self.redirect("/security?err=" + urllib.parse.quote("Passwords must match and be at least 12 characters."))
-            if pw.lower() in [p.lower() for p in CONF.get("reserved_passwords", [])] or pw == CONF["password"]:
+            if pw.lower() in [p.lower() for p in CONF.get("reserved_passwords", [])]:
                 return self.redirect("/security?err=" + urllib.parse.quote("Pick a password you don't use for anything else."))
             secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
             PENDING[u] = (hash_password(pw), secret)
@@ -4300,6 +3146,8 @@ the website asks for a username, the remote password set here, and a 6-digit cod
             PENDING.pop(u, None)
             return self.redirect("/security?ok=" + urllib.parse.quote(f"Remote login is on for {u}."))
         if self.path == "/security/disable":
+            if u == OWNER:                               # the only way in is your own login: never switch it off
+                return self.redirect("/security?err=" + urllib.parse.quote("You can't turn off your own login (it's the only way in)."))
             users = remote_users()
             users.pop(u, None)
             save_remote_users(users)
@@ -4349,7 +3197,7 @@ the website asks for a username, the remote password set here, and a 6-digit cod
         js = json.dumps(data).replace("</", "<\\/")
         return f"""{msg_html(qs)}<div class="dlhead"><h2>Downloads</h2><span class="muted" id="dlsum"></span></div>
 <div id="dl"></div><p class="hint">Live: updates every 2 seconds. Finished downloads stay listed for 3 days.</p>
-<script type="application/json" id="dldata">{js}</script><script>{DOWNLOADS_JS}</script>"""
+<script type="application/json" id="dldata">{js}</script><script src="{asset('downloads.js')}"></script>"""
 
     def follows_page(self, qs):
         try:

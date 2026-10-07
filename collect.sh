@@ -1,20 +1,11 @@
 #!/bin/bash
-# Copies the live HTPC files into this repo (run it, review `git diff`, commit).
+# The website (website/) and helper scripts (bin/, linked from ~/.local/bin) run straight from this repo. This copies in
+# the rest of the HTPC's config: systemd units, mpv, Kodi, Recyclarr (run it, review `git diff`, commit).
 # Secrets never live in these files: API keys, passwords, TOTP secrets, ntfy topic and DDNS URLs stay in
 # ~/.config/... and ~/htpc-credentials.txt, which are NOT copied. check-secrets.sh verifies that before every commit.
 set -e
 cd "$(dirname "$0")"
 H=$HOME
-
-# website: Python stdlib app + vendored player libraries (hls.js, JASSUB)
-mkdir -p website/static
-cp "$H/.local/opt/manga-request/app.py" website/
-mkdir -p website/tests && cp "$H/.local/opt/manga-request/tests/"*.py website/tests/
-rsync -a --delete --exclude '*.gz' "$H/.local/opt/manga-request/static/" website/static/
-
-# helper scripts (~/.local/bin)
-mkdir -p bin
-for f in ddns-update htpc-notify htpc-watchdog manga-rescan qbit-added sonarr-anime-defaults; do cp "$H/.local/bin/$f" bin/; done
 
 # one-time setup scripts (run with sudo) live only in this repo: setup/
 # systemd user services/timers (+ drop-ins)

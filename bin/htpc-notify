@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
-spec = importlib.util.spec_from_file_location("htpc", HOME / ".local/opt/manga-request/app.py")
+spec = importlib.util.spec_from_file_location("htpc", Path(__file__).resolve().parent.parent / "website/app.py")
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)                     # reuses the website's config + link signing (server doesn't start)
 TOPIC = (HOME / ".config/htpc-ntfy-topic").read_text().strip()

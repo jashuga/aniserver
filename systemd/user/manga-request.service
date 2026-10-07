@@ -3,7 +3,7 @@ Description=aniserver website (streaming, adding shows, manga)
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 %h/.local/opt/manga-request/app.py
+ExecStart=/usr/bin/python3 %h/aniserver/website/app.py
 Restart=on-failure
 
 [Install]

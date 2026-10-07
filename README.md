@@ -51,11 +51,11 @@ Single-file Python (standard library only), run by the `manga-request` user serv
   Skip Opening and Next episode (chapters), autoplay, audio/subtitle/quality/speed menus, Continue on TV (writes mpv's
   watch-later file, then Kodi `Player.Open`), PiP, MediaSession and keyboard shortcuts.
   Every minute and on any problem it writes to `~/.local/share/htpc-web/player.log`.
-- **Security**: internet requests (via Caddy) need username + PBKDF2 password + TOTP (once per browser), with rate
-  limiting and fail2ban. Video is fetched with HMAC stream tokens, and the Jellyfin API key never reaches the browser.
-- **Profiles**: "Who's watching?" lists the people in `profiles` in `config.json` (the first one is the owner); each maps
-  to the Jellyfin user with the same name. Internet logins are set up per person at `/security` (home network or
-  Tailscale only).
+- **Security**: everyone signs in with their own account, at home and away: username + PBKDF2 password + TOTP (once per
+  browser), with rate limiting and fail2ban. Video is fetched with HMAC stream tokens, and the Jellyfin API key never
+  reaches the browser.
+- **People**: `profiles` in `config.json` (the first one is the owner); each maps to the Jellyfin user with the same name,
+  so everyone has their own watch history. The owner sets up everyone's login at `/security` (home network or Tailscale).
 
 ### Getting started
 
