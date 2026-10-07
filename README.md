@@ -26,7 +26,9 @@ drive has room, and sets anime vs standard profiles.
 
 ## The website (`website/app.py`)
 
-Single-file Python (standard library only), run by the `manga-request` user service.
+Python standard library only, no framework. `website/app.py` is the entry point, run straight from this repo by the
+`manga-request` user service. The code is in `website/aniserver/`, one module per job (`config`, `services`, `auth`,
+`anime`, `manga`, `library`, `streaming`, `pages`, `server`), and the CSS/JavaScript is in `website/assets/`.
 
 - **Home**: hero carousel (show logos, *Resume S4 E1 · 15m left*) and rows for Continue watching, New episodes, My shows,
   On the way (downloading or airing), and Trending (AniList).
@@ -60,10 +62,12 @@ Single-file Python (standard library only), run by the `manga-request` user serv
 ### Getting started
 
 1. Install Python 3.12+, Jellyfin, Sonarr, Radarr, Prowlarr and qBittorrent (`setup/` has the scripts used here).
-2. Copy `website/` to `~/.local/opt/manga-request/`, and `website/config.example.json` to
-   `~/.config/manga-request/config.json` (mode 600). Fill in the API keys, a long random `secret` and your profiles.
-3. Install the user services from `systemd/user/` (`systemctl --user enable --now manga-request`) and open port 5050.
-4. Tests: `python3 -m unittest discover -s website/tests` (they also `node --check` every embedded script).
+2. Copy `website/config.example.json` to `~/.config/manga-request/config.json` (mode 600). Fill in the API keys, a long
+   random `secret` and your profiles.
+3. Clone this repo to `~/aniserver`, install the user services from `systemd/user/`
+   (`systemctl --user enable --now manga-request`, which runs `website/app.py` from the repo) and open port 5050.
+4. Tests: `python3 -m unittest discover -s website/tests`. They `node --check` every script and never contact the real
+   services (a test that forgets a fake fails instead).
 
 ## Other pieces
 
@@ -93,7 +97,8 @@ None are in this repo. They live only on the machine:
 
 ## Updating this repo (automatic)
 
-`autosync.sh` copies the live files in (`collect.sh`), runs `check-secrets.sh`, and commits + pushes only when
+The website and `bin/` run straight from this repo (`~/.local/bin` links here). `autosync.sh` copies in the rest of
+the config (`collect.sh`: systemd units, mpv, Kodi, Recyclarr), runs `check-secrets.sh`, and commits + pushes only when
 something changed. It runs after every Claude Code response (a `Stop` hook) and every 10 minutes
 (`htpc-autosync.timer`). If the check fails, nothing is committed or pushed. Log: `~/.local/share/htpc-web/autosync.log`.
 

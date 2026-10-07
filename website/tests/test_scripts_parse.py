@@ -1,15 +1,10 @@
 """Every JavaScript file the site sends must parse (a syntax error silently kills every button on the page), and pages
 must load the CSS/JS from assets/ as long-cached files. Needs node; run: python3 -m unittest discover -s tests -v"""
-import importlib.util
 import shutil
 import subprocess
 import unittest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("app", ROOT / "app.py")
-app = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(app)
+from helpers import ROOT, app
 ASSETS = sorted((ROOT / "assets").glob("*.*"))
 
 

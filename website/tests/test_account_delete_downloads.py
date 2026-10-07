@@ -8,24 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("app", Path(__file__).resolve().parent.parent / "app.py")
-app = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(app)
-
-
-class Patch:
-    """Temporarily replace attributes of the app module."""
-    def __init__(self, **values):
-        self.values, self.saved = values, {}
-
-    def __enter__(self):
-        for k, v in self.values.items():
-            self.saved[k] = getattr(app, k)
-            setattr(app, k, v)
-
-    def __exit__(self, *exc):
-        for k, v in self.saved.items():
-            setattr(app, k, v)
+from helpers import Patch, app
 
 
 class WebsitePassword(unittest.TestCase):

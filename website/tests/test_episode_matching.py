@@ -8,9 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("app", Path(__file__).resolve().parent.parent / "app.py")
-app = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(app)
+from helpers import app, everywhere
 
 DAY = 86400
 
@@ -152,10 +150,11 @@ class MonitorEntry(unittest.TestCase):
         app.time.time = lambda: calendar.timegm((2026, 10, 3, 12, 0, 0))     # "today": S6E3 aired yesterday
 
     def tearDown(self):
-        app.sonarr, app.time.time = self._sonarr, self._time
+        everywhere(sonarr=self._sonarr)
+        app.time.time = self._time
 
     def test_adding_the_2nd_stage_monitors_exactly_its_episodes_and_searches_the_aired_ones(self):
-        app.sonarr = fake = FakeSonarr(JOJO_S6, [0, 1, 2, 3, 4, 5, 6])
+        fake = everywhere(sonarr=FakeSonarr(JOJO_S6, [0, 1, 2, 3, 4, 5, 6]))
         what, aired = app.monitor_entry(1, SBR_2ND, season_hint=7)
         self.assertEqual(fake.monitored(), [(6, n) for n in range(2, 13)])       # E1 (1st stage) left alone
         self.assertTrue(fake.series["monitored"])
@@ -164,26 +163,27 @@ class MonitorEntry(unittest.TestCase):
         self.assertEqual((what, aired), ("season 6, episodes 2-12", 2))
 
     def test_adding_the_1st_stage_monitors_only_s6e1(self):
-        app.sonarr = fake = FakeSonarr(JOJO_S6, [0, 6])
+        fake = everywhere(sonarr=FakeSonarr(JOJO_S6, [0, 6]))
         app.monitor_entry(1, SBR_1ST)
         self.assertEqual(fake.monitored(), [(6, 1)])
         self.assertFalse(next(x for x in fake.series["seasons"] if x["seasonNumber"] == 6)["monitored"])
 
     def test_episodes_monitored_before_stay_monitored(self):
         eps = [dict(e, monitored=True) if e["episodeNumber"] == 1 else e for e in JOJO_S6]
-        app.sonarr = fake = FakeSonarr(eps, [6])
+        fake = everywhere(sonarr=FakeSonarr(eps, [6]))
         app.monitor_entry(1, SBR_2ND)
         self.assertEqual(fake.monitored(), [(6, n) for n in range(1, 13)])
 
     def test_nothing_on_tvdb_yet_keeps_following_the_show(self):
-        app.sonarr = FakeSonarr(JOJO_S6, [6])
+        everywhere(sonarr=FakeSonarr(JOJO_S6, [6]))
         self.assertIsNone(app.monitor_entry(1, entry((2027, 4, 1), None, 12, "NOT_YET_RELEASED")))
         followed = []
-        app.follow_new_episodes, original = (lambda sid: followed.append(sid)), app.follow_new_episodes
+        original = app.follow_new_episodes
+        everywhere(follow_new_episodes=lambda sid: followed.append(sid))
         try:
             msg = app.entry_result(1, entry((2027, 4, 1), None, 12, "NOT_YET_RELEASED"), None)
         finally:
-            app.follow_new_episodes = original
+            everywhere(follow_new_episodes=original)
         self.assertEqual(followed, [1])
         self.assertIn("as soon as they're listed", msg)
 
@@ -191,23 +191,25 @@ class MonitorEntry(unittest.TestCase):
 class UpcomingEntries(unittest.TestCase):
     def test_upcoming_entry_does_not_fall_back_to_the_old_season(self):
         old = [dict(e, hasFile=False) for e in weekly(3, 1, 12, 2025, 10, 3)]
-        app.sonarr, saved = FakeSonarr(old, [3]), app.sonarr
+        saved = app.sonarr
+        everywhere(sonarr=FakeSonarr(old, [3]))
         try:
             self.assertIsNone(app.monitor_entry(1, entry((2027, 1, 9), None, 12, "NOT_YET_RELEASED"), season_hint=3))
             self.assertEqual(app.sonarr.monitored(), [])
             self.assertEqual(app.sonarr.commands, [])
         finally:
-            app.sonarr = saved
+            everywhere(sonarr=saved)
 
 
 class SeasonFallback(unittest.TestCase):
     def test_guessed_season_that_tvdb_does_not_have(self):
-        self._lookup, app.tvdb_seasons = app.tvdb_seasons, lambda tvdb, library=None: {0, 1, 2, 3, 4, 5, 6}
+        self._lookup = app.tvdb_seasons
+        everywhere(tvdb_seasons=lambda tvdb, library=None: {0, 1, 2, 3, 4, 5, 6})
         try:
             self.assertEqual(app.settle_season(262954, 7), 6)
             self.assertEqual(app.settle_season(262954, 6), 6)
         finally:
-            app.tvdb_seasons = self._lookup
+            everywhere(tvdb_seasons=self._lookup)
 
 
 if __name__ == "__main__":

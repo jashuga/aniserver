@@ -6,7 +6,9 @@ import time
 import unittest
 from pathlib import Path
 
-loader = importlib.machinery.SourceFileLoader("watchdog", str(Path.home() / ".local/bin/htpc-watchdog"))
+from helpers import ROOT       # also keeps the tests away from the real services
+
+loader = importlib.machinery.SourceFileLoader("watchdog", str(ROOT.parent / "bin/htpc-watchdog"))
 spec = importlib.util.spec_from_loader("watchdog", loader)
 wd = importlib.util.module_from_spec(spec)
 loader.exec_module(wd)
