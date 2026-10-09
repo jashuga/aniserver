@@ -2,6 +2,7 @@
 Run: python3 -m unittest discover -s ~/.local/opt/manga-request/tests -v"""
 import importlib.machinery
 import importlib.util
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -205,6 +206,81 @@ class NewlyAddedOldShow(unittest.TestCase):
             wd.app.sonarr, wd.app.follow_new_episodes, wd.push, wd.DRY, wd.log = saved
         self.assertEqual(len(fake.pushes), 1)
         self.assertIn("2+ days after the show was added", fake.pushes[0][1])
+
+
+class KodiLibrary(unittest.TestCase):
+    """The TV must list everything Sonarr/Radarr have (JoJo S06E04 was missing because Sonarr skipped Kodi's update while
+    a video was open; Kodi had also matched The Apothecary Diaries to a different show by name)."""
+
+    def run_check(self, kodi_shows, kodi_movies, series, movies, state, now, kodi_up=True):
+        calls, pushes = [], []
+
+        def kodi_rpc(method, params=None):
+            if not kodi_up:
+                raise OSError("connection refused")
+            if method == "VideoLibrary.GetTVShows":
+                return {"result": {"tvshows": kodi_shows}}
+            if method == "VideoLibrary.GetMovies":
+                return {"result": {"movies": kodi_movies}}
+            calls.append((method, params))
+            return {"result": "OK"}
+        saved = (wd.app.kodi_rpc, wd.app.sonarr, wd.app.radarr, wd.push, wd.DRY, wd.log)
+        wd.app.kodi_rpc, wd.DRY, wd.log = kodi_rpc, False, lambda msg, quiet=False: None
+        wd.app.sonarr = lambda method, path, body=None, timeout=60: series
+        wd.app.radarr = lambda method, path, body=None, timeout=60: movies
+        wd.push = lambda title, msg: pushes.append(title)
+        try:
+            wd.check_kodi(state, now)
+        finally:
+            wd.app.kodi_rpc, wd.app.sonarr, wd.app.radarr, wd.push, wd.DRY, wd.log = saved
+        return calls, pushes
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        for name in ("JoJo", "Brotherhood", "Apothecary"):
+            (self.root / name).mkdir()
+        self.state = {"searched": {}, "alerted": {}}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def show(self, sid, name, files, tvdb):
+        return {"id": sid, "title": name, "path": str(self.root / name), "tvdbId": tvdb, "statistics": {"episodeFileCount": files}}
+
+    def in_kodi(self, kid, name, episodes, tvdb):
+        return {"tvshowid": kid, "label": name, "file": str(self.root / name) + "/", "episode": episodes, "uniqueid": {"tvdb": str(tvdb)}}
+
+    def test_missing_episode_is_scanned_once_and_the_show_gets_a_tvshow_nfo(self):
+        series = [self.show(1, "JoJo", 4, 79151)]
+        calls, pushes = self.run_check([self.in_kodi(6, "JoJo", 3, 79151)], [], series, [], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.Scan", {"directory": str(self.root / "JoJo") + "/", "showdialogs": False})])
+        self.assertEqual((self.root / "JoJo/tvshow.nfo").read_text().strip(), "https://thetvdb.com/?tab=series&id=79151")
+        self.assertEqual(self.run_check([self.in_kodi(6, "JoJo", 3, 79151)], [], series, [], self.state, NOW + HOUR), ([], []))
+        self.run_check([self.in_kodi(6, "JoJo", 4, 79151)], [], series, [], self.state, NOW + 2 * HOUR)      # caught up
+        self.assertEqual(self.state["kodi"], {})
+
+    def test_brand_new_show_is_found_through_its_parent_folder(self):
+        calls, _ = self.run_check([], [], [self.show(2, "Brotherhood", 64, 85249)], [], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.Scan", {"directory": str(self.root) + "/", "showdialogs": False})])
+
+    def test_show_matched_by_name_to_the_wrong_entry_is_reidentified(self):
+        calls, _ = self.run_check([self.in_kodi(9, "Apothecary", 0, 482073)], [], [self.show(3, "Apothecary", 2, 431162)], [], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.RefreshTVShow", {"tvshowid": 9, "ignorenfo": False, "refreshepisodes": True})])
+
+    def test_movies_and_several_shows_behind_mean_one_full_scan(self):
+        movie = {"id": 5, "title": "Encanto", "path": str(self.root / "Movies/Encanto (2021)"), "movieFile": {"path": str(self.root / "Movies/Encanto (2021)/e.mkv")}}
+        calls, _ = self.run_check([], [], [self.show(1, "JoJo", 4, 79151)], [movie], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.Scan", {"showdialogs": False})])
+
+    def test_nothing_happens_while_kodi_is_closed(self):
+        self.assertEqual(self.run_check([], [], [self.show(1, "JoJo", 4, 79151)], [], self.state, NOW, kodi_up=False), ([], []))
+        self.assertFalse((self.root / "JoJo/tvshow.nfo").exists())
+
+    def test_still_missing_after_three_scans_is_reported_once(self):
+        series, kodi = [self.show(1, "JoJo", 4, 79151)], [self.in_kodi(6, "JoJo", 3, 79151)]
+        pushes = [self.run_check(kodi, [], series, [], self.state, NOW + n * 7 * HOUR)[1] for n in range(5)]
+        self.assertEqual(pushes, [[], [], ["JoJo isn't showing up on the TV"], [], []])
 
 
 if __name__ == "__main__":

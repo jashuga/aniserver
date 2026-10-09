@@ -13,11 +13,16 @@
     as episode 1) is imported file by file, if Sonarr reads every file cleanly as one of the download's own episodes
   - anything else: one phone alert.
 - "Missing for 6 hours / 2 days" counts from when the show was added, not only from the air date (old shows).
+- The TV (Kodi) must list everything Sonarr/Radarr have: folders it's behind on are scanned again (Sonarr's own Kodi
+  update was skipped while a video was open - JoJo S06E04 stayed off the TV for half a day), every show folder gets a
+  tvshow.nfo with its TVDB id so Kodi can't pick the wrong show by name, a wrong match is re-identified from it, and a
+  show still missing after 3 scans gets one phone alert.
 Usage: htpc-watchdog [--dry-run]"""
 import calendar
 import getpass
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -253,6 +258,68 @@ def check_stuck_imports(state, now):
                  f"{arr} says: {why}. Fix it in {arr} → Activity → Queue (import it by hand, or remove it so it searches again).")
 
 
+def kodi(method, params=None):
+    r = app.kodi_rpc(method, params or {})
+    if "error" in r:
+        raise RuntimeError(f"Kodi: {r['error']}")
+    return r.get("result") or {}
+
+
+def same_dir(a, b):
+    return os.path.realpath((a or "").rstrip("/")) == os.path.realpath((b or "").rstrip("/"))
+
+
+def check_kodi(state, now):
+    try:
+        shows = kodi("VideoLibrary.GetTVShows", {"properties": ["file", "episode", "uniqueid"]}).get("tvshows", [])
+        movies = kodi("VideoLibrary.GetMovies", {"properties": ["file"]}).get("movies", [])
+    except Exception:
+        return                                          # Kodi isn't running: it scans everything when it starts
+    behind = []                                         # (key, files, folder to scan, title)
+    for s in app.sonarr("GET", "/series"):
+        have = (s.get("statistics") or {}).get("episodeFileCount") or 0
+        folder = Path(s["path"])
+        if not have or not folder.is_dir():
+            continue
+        nfo = folder / "tvshow.nfo"
+        if not nfo.exists():                            # tells Kodi exactly which show this is (instead of guessing by name)
+            log(f"{s['title']}: writing tvshow.nfo (TVDB {s['tvdbId']}) for Kodi")
+            if not DRY:
+                nfo.write_text(f"https://thetvdb.com/?tab=series&id={s['tvdbId']}\n")
+        t = next((t for t in shows if same_dir(t["file"], s["path"])), None)
+        tvdb = str((t or {}).get("uniqueid", {}).get("tvdb") or "")
+        if t and tvdb and tvdb != str(s["tvdbId"]):
+            log(f"{s['title']}: Kodi matched the wrong show (TVDB {tvdb}, should be {s['tvdbId']}), re-identifying it")
+            if not DRY:
+                kodi("VideoLibrary.RefreshTVShow", {"tvshowid": t["tvshowid"], "ignorenfo": False, "refreshepisodes": True})
+            continue
+        if t is None or t["episode"] < have:            # a brand-new show folder is only picked up through its parent
+            behind.append((f"show:{s['id']}", have, str(folder if t else folder.parent) + "/", s["title"]))
+    for m in app.radarr("GET", "/movie"):
+        f = (m.get("movieFile") or {}).get("path")
+        if f and not any(same_dir(x["file"], f) for x in movies):
+            behind.append((f"movie:{m['id']}", 1, str(Path(m["path"]).parent) + "/", m["title"]))
+    seen = state.setdefault("kodi", {})
+    for key in [k for k in seen if k not in {b[0] for b in behind}]:
+        seen.pop(key)                                   # caught up
+    due = []
+    for key, have, folder, title in behind:
+        last = seen.get(key) or {}
+        if last.get("have") == have and now - last.get("t", 0) < 6 * HOUR:
+            continue                                    # scanned for this already; give it time
+        tries = last.get("tries", 0) + 1 if last.get("have") == have else 1
+        seen[key] = {"have": have, "t": now, "tries": tries}
+        due.append((folder, title))
+        if tries >= 3 and f"kodi:{key}" not in state["alerted"]:
+            state["alerted"][f"kodi:{key}"] = now
+            push(f"{title} isn't showing up on the TV",
+                 "Kodi still doesn't list all of it after 3 library scans. On the TV: the show → Information → Refresh.")
+    if due:
+        log("the TV (Kodi) is missing " + ", ".join(t for _, t in due) + " - scanning")
+        if not DRY:                                     # Kodi runs one scan at a time: one folder, or the whole library
+            kodi("VideoLibrary.Scan", {"directory": due[0][0], "showdialogs": False} if len(due) == 1 else {"showdialogs": False})
+
+
 def main():
     try:
         state = json.loads(STATE.read_text())
@@ -261,7 +328,7 @@ def main():
     state.setdefault("searched", {})
     state.setdefault("alerted", {})
     now = time.time()
-    for check in (check_services, check_shows, check_movies, check_stuck_imports):
+    for check in (check_services, check_shows, check_movies, check_stuck_imports, check_kodi):
         try:
             check(state, now)
         except Exception as e:      # one service being down shouldn't stop the other check
