@@ -283,5 +283,54 @@ class KodiLibrary(unittest.TestCase):
         self.assertEqual(pushes, [[], [], ["JoJo isn't showing up on the TV"], [], []])
 
 
+class JapanesePosters(unittest.TestCase):
+    def run_check(self, state, kodi_shows):
+        jelly, kodi_calls = [], []
+        series = [{"tvdbId": 1, "title": "Re:Zero", "originalLanguage": {"name": "Japanese"}},
+                  {"tvdbId": 2, "title": "Castlevania", "originalLanguage": {"name": "English"}},
+                  {"tvdbId": 3, "title": "UBW", "originalLanguage": {"name": "Japanese"}}]
+        items = [{"Id": "a", "Name": "Re:Zero", "Type": "Series", "ProviderIds": {"Tvdb": "1"}},
+                 {"Id": "b", "Name": "Castlevania", "Type": "Series", "ProviderIds": {"Tvdb": "2"}},
+                 {"Id": "c", "Name": "UBW", "Type": "Series", "ProviderIds": {"Tvdb": "3"}}]
+        remote = {"a": [{"Language": "en", "Url": "https://img/en.jpg", "VoteCount": 9, "ProviderName": "TheMovieDb"},
+                        {"Language": "ja", "Url": "https://img/ja-few.jpg", "VoteCount": 1, "ProviderName": "TheMovieDb"},
+                        {"Language": "ja", "Url": "https://img/ja-best.jpg", "VoteCount": 5, "ProviderName": "TheMovieDb"}],
+                  "c": [{"Language": "en", "Url": "https://img/ubw-en.jpg", "VoteCount": 3, "ProviderName": "TheMovieDb"}]}
+
+        def jellyfin(path, method="GET", body=None):
+            if path.startswith("/Items?"):
+                return {"Items": items}
+            return {"Images": remote[path.split("/")[2]]}
+
+        def kodi_rpc(method, params=None):
+            if method == "VideoLibrary.GetTVShows":
+                return {"result": {"tvshows": kodi_shows}}
+            if method == "VideoLibrary.GetMovies":
+                return {"result": {"movies": []}}
+            kodi_calls.append((method, params))
+            return {"result": "OK"}
+        saved = (wd.app.sonarr, wd.app.radarr, wd.app.jellyfin, wd.app.graphql, wd.app.kodi_rpc, wd.set_jellyfin_poster, wd.DRY, wd.log)
+        wd.app.sonarr = lambda method, path, body=None, timeout=60: series
+        wd.app.radarr = lambda method, path, body=None, timeout=60: []
+        wd.app.jellyfin, wd.app.kodi_rpc, wd.DRY, wd.log = jellyfin, kodi_rpc, False, lambda msg, quiet=False: None
+        wd.app.graphql = lambda query, variables=None: {"Media": {"coverImage": {"extraLarge": "https://anilist/ubw.jpg"}}}
+        wd.set_jellyfin_poster = lambda item_id, url, provider: jelly.append((item_id, url, provider))
+        try:
+            wd.check_posters(state, NOW)
+        finally:
+            (wd.app.sonarr, wd.app.radarr, wd.app.jellyfin, wd.app.graphql, wd.app.kodi_rpc, wd.set_jellyfin_poster, wd.DRY, wd.log) = saved
+        return jelly, kodi_calls
+
+    def test_anime_get_the_most_voted_japanese_poster_once_on_the_site_and_the_tv(self):
+        state = {"searched": {}, "alerted": {}}
+        kodi_shows = [{"tvshowid": 6, "label": "Re:Zero", "uniqueid": {"tvdb": "1"}, "art": {"poster": "image://https%3a%2f%2fimg%2fen.jpg/"}},
+                      {"tvshowid": 7, "label": "Castlevania", "uniqueid": {"tvdb": "2"}, "art": {}}]
+        jelly, kodi_calls = self.run_check(state, kodi_shows)
+        self.assertEqual(jelly, [("a", "https://img/ja-best.jpg", "TheMovieDb"), ("c", "https://anilist/ubw.jpg", "AniList")])
+        self.assertEqual(kodi_calls, [("VideoLibrary.SetTVShowDetails", {"tvshowid": 6, "art": {"poster": "https://img/ja-best.jpg"}})])
+        kodi_shows[0]["art"]["poster"] = "image://https%3a%2f%2fimg%2fja-best.jpg/"                          # Kodi has it now
+        self.assertEqual(self.run_check(state, kodi_shows), ([], []))                                         # nothing twice
+
+
 if __name__ == "__main__":
     unittest.main()

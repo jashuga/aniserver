@@ -17,7 +17,6 @@ services below. Only download what you have the right to.
 | **Jellyfin** (:8096) | Library, metadata, watch progress per person, GPU transcoding (VAAPI) |
 | **Kodi + mpv** | The TV: Kodi menus, mpv (`mpv/mpv.conf`) plays everything with full-quality ASS subtitles |
 | **Suwayomi** (:4567) + **Komga** (:25600) | Weekly manga chapters + volume library (read in Komelia) |
-| **go-librespot** | Spotify Connect speaker |
 | **Caddy** | HTTPS for two public hostnames (the website and Jellyfin); fail2ban; key-only SSH from the internet |
 | **website/** (:5050) | The aniserver site (below) |
 

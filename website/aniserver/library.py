@@ -15,6 +15,7 @@ from pathlib import Path
 from aniserver.config import CONF, KODI, MEDIA_ROOTS, OWNER
 from aniserver.services import TORRENT_CATEGORIES, _JF_CACHE, _SWR, jellyfin, jf_maps, kodi_rpc, qbit, qbit_live, radarr, sonarr, swr
 from aniserver.manga import parse_release
+from aniserver.pages import img_url
 
 STUCK_IMPORTS = ("importBlocked", "importFailed")   # finished, but Sonarr/Radarr can't file it (htpc-watchdog clears or reports it)
 TORRENT_STATES = {   # qBittorrent state -> what the Downloads page says
@@ -27,11 +28,12 @@ def _download_names():
     """downloadId -> what it is (show + episodes / movie), from Sonarr/Radarr queues and recent history; also which are
     still being imported ("importing") or can't be ("blocked"), and when finished ones were imported."""
     names, pending, imported = {}, {}, {}
-    library = {provider_key(i): i["Id"] for i in swr("libitems", 60, lambda: library_items(), 3600) if provider_key(i)}
+    library = {provider_key(i): i["Id"] for i in swr("libitems", 60, library_items, 3600) if provider_key(i)}
+    posters = library_posters()
 
     def show(rec, series, ep):
         d = names.setdefault(rec["downloadId"].upper(), {"kind": "show", "title": series.get("title") or "", "eps": {},
-                                                         "poster": poster_of(series.get("images")),
+                                                         "poster": posters.get(f"s{series.get('tvdbId')}") or poster_of(series.get("images")),
                                                          "link": library.get(f"s{series.get('tvdbId')}")})
         if ep:
             d["eps"][(ep["seasonNumber"], ep["episodeNumber"])] = ep.get("title") or ""
@@ -48,7 +50,7 @@ def _download_names():
 
     def movie(rec, m):
         names.setdefault(rec["downloadId"].upper(), {"kind": "movie", "title": f"{m.get('title', '')} ({m.get('year', '')})".replace(" ()", ""),
-                                                     "eps": {}, "poster": poster_of(m.get("images")),
+                                                     "eps": {}, "poster": posters.get(f"m{m.get('tmdbId')}") or poster_of(m.get("images")),
                                                      "link": library.get(f"m{m.get('tmdbId')}")})
     for r in radarr("GET", "/queue?pageSize=1000&includeMovie=true")["records"]:
         if r.get("downloadId"):
@@ -233,6 +235,17 @@ def poster_of(images):
     return next((i.get("remoteUrl") for i in images or [] if i.get("coverType") == "poster" and i.get("remoteUrl")), "")
 
 
+def library_posters():
+    """Jellyfin's poster for every title in the library, keyed s<tvdb> / m<tmdb>, so cards built from Sonarr/Radarr show
+    the same artwork as the rest of the site (e.g. the Japanese anime posters). Empty if Jellyfin can't be reached."""
+    try:
+        items = swr("libitems", 60, library_items, 3600)
+    except Exception:
+        return {}
+    return {provider_key(i): img_url(i["Id"], "Primary", 360, (i.get("ImageTags") or {}).get("Primary"))
+            for i in items if provider_key(i) and (i.get("ImageTags") or {}).get("Primary")}
+
+
 FETCH = ThreadPoolExecutor(8)     # hub_cards' requests run side by side (its own pool: POOL may be the one calling it)
 _SHOW_FILES = {}                  # series id -> (files stamp, time, episodefile list, episode list)
 
@@ -260,7 +273,7 @@ def hub_cards(with_files=True):
     mcommands = [c for c in got["mcommands"] if c["status"] in ("queued", "started") and c["name"] in SEARCH_COMMANDS]
     live = {t["hash"].upper(): t for t in got["live"]}
     per_show = {s["id"]: FETCH.submit(show_files, s) for s in series if with_files and (s.get("statistics") or {}).get("episodeFileCount")}
-    cards = []
+    cards, posters = [], library_posters()
     for s in series:
         st = s.get("statistics") or {}
         q = [r for r in queue if r.get("seriesId") == s["id"]]
@@ -283,7 +296,7 @@ def hub_cards(with_files=True):
             eps.sort(key=lambda x: x["key"])
         missing = max(0, (st.get("episodeCount") or 0) - (st.get("episodeFileCount") or 0))
         cards.append({"kind": "show", "id": f"s{s['tvdbId']}", "title": s["title"], "year": s.get("year"),
-                      "poster": poster_of(s.get("images")), "downloads": list(downloads.values()), "searching": searching,
+                      "poster": posters.get(f"s{s['tvdbId']}") or poster_of(s.get("images")), "downloads": list(downloads.values()), "searching": searching,
                       "files": eps, "missing": missing, "next": s.get("nextAiring"), "added": s.get("added") or "",
                       "status": s.get("status"), "size": st.get("sizeOnDisk") or 0, "count": st.get("episodeFileCount") or 0})
     for m in movies:
@@ -292,7 +305,7 @@ def hub_cards(with_files=True):
         searching = any(m["id"] in ((c.get("body") or {}).get("movieIds") or []) for c in mcommands)
         files = [{"label": "Movie", "title": "", "path": m["movieFile"]["path"], "key": (0, 0)}] if m.get("hasFile") and m.get("movieFile") else []
         cards.append({"kind": "movie", "id": f"m{m['tmdbId']}", "title": m["title"], "year": m.get("year"),
-                      "poster": poster_of(m.get("images")), "downloads": downloads, "searching": searching, "files": files,
+                      "poster": posters.get(f"m{m['tmdbId']}") or poster_of(m.get("images")), "downloads": downloads, "searching": searching, "files": files,
                       "missing": 0 if files else 1, "next": None, "added": m.get("added") or "", "status": m.get("status"),
                       "size": m.get("sizeOnDisk") or 0, "count": 1 if m.get("hasFile") else 0})
     active = lambda c: bool(c["downloads"] or c["searching"])

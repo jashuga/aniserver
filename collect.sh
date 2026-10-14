@@ -10,7 +10,7 @@ H=$HOME
 # one-time setup scripts (run with sudo) live only in this repo: setup/
 # systemd user services/timers (+ drop-ins)
 mkdir -p systemd/user
-for f in ddns-update htpc-autosync htpc-watchdog jellyfin kodi komga manga-request manga-rescan radarr recyclarr-sync spotify-connect suwayomi; do
+for f in ddns-update htpc-autosync htpc-watchdog jellyfin kodi komga manga-request manga-rescan radarr recyclarr-sync suwayomi; do
   for ext in service timer; do [ -f "$H/.config/systemd/user/$f.$ext" ] && cp "$H/.config/systemd/user/$f.$ext" systemd/user/; done
   [ -d "$H/.config/systemd/user/$f.service.d" ] && rsync -a "$H/.config/systemd/user/$f.service.d" systemd/user/
 done
