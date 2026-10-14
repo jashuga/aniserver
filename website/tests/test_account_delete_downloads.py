@@ -101,16 +101,24 @@ class DeleteTitle(unittest.TestCase):
             if path == "/torrents/info":
                 return [{"hash": h} for h in torrents]
             qcalls.append((path, data))
+        def kodi_rpc(method, params=None):
+            if method == "VideoLibrary.GetTVShows":       # what the TV lists: the deleted show and another one
+                return {"result": {"tvshows": [{"tvshowid": 3, "uniqueid": {"tvdb": "111"}, "file": "/media/Show A/"},
+                                               {"tvshowid": 4, "uniqueid": {"tvdb": "222"}, "file": "/media/Show B/"}]}}
+            if method == "VideoLibrary.GetMovies":
+                return {"result": {"movies": [{"movieid": 7, "uniqueid": {"tmdb": "999"}, "file": "/movies/Film (2020)/f.mkv"},
+                                              {"movieid": 8, "uniqueid": {"tmdb": "568124"}, "file": "/movies/Encanto (2021)/e.mkv"}]}}
+            refreshed.append((method, params))
+            return {"result": "OK"}
         with tempfile.TemporaryDirectory() as d, Patch(sonarr=sonarr, radarr=radarr, qbit=qbit, DELETE_LOG=Path(d) / "deleted.log",
-                                                        jellyfin=lambda *a, **k: refreshed.append("jellyfin"),
-                                                        kodi_rpc=lambda *a, **k: refreshed.append("kodi")):
+                                                        jellyfin=lambda *a, **k: refreshed.append("jellyfin"), kodi_rpc=kodi_rpc):
             result = app.delete_title(key, "alice")
             log = (Path(d) / "deleted.log").read_text()
         return result, qcalls, refreshed, log
 
     def test_deleting_a_show(self):
-        sonarr = FakeArr({"/series": [{"id": 5, "tvdbId": 111, "title": "Show A", "statistics": {"sizeOnDisk": 2e9}},
-                                      {"id": 6, "tvdbId": 222, "title": "Show B", "statistics": {"sizeOnDisk": 1e9}}],
+        sonarr = FakeArr({"/series": [{"id": 5, "tvdbId": 111, "title": "Show A", "path": "/media/Show A", "statistics": {"sizeOnDisk": 2e9}},
+                                      {"id": 6, "tvdbId": 222, "title": "Show B", "path": "/media/Show B", "statistics": {"sizeOnDisk": 1e9}}],
                           "/history/series?seriesId=5": [{"downloadId": "AAA"}, {"downloadId": "BBB"}, {}],
                           "/queue?pageSize=1000": {"records": [{"id": 9, "seriesId": 5, "downloadId": "CCC"},
                                                                {"id": 10, "seriesId": 6, "downloadId": "DDD"}]}})
@@ -122,15 +130,18 @@ class DeleteTitle(unittest.TestCase):
         self.assertEqual(len(qcalls), 1)
         self.assertEqual(sorted(qcalls[0][1]["hashes"].split("|")), ["aaa", "ccc"])       # seeding copies too (BBB is already gone)
         self.assertEqual(qcalls[0][1]["deleteFiles"], "true")
-        self.assertEqual(refreshed, ["jellyfin", "kodi"])
+        self.assertEqual(refreshed, ["jellyfin", ("VideoLibrary.RemoveTVShow", {"tvshowid": 3}),          # off the TV right away
+                                     ("VideoLibrary.Clean", {"showdialogs": False})])
         self.assertIn("alice deleted Show A", log)
 
     def test_deleting_a_movie(self):
-        radarr = FakeArr({"/movie": [{"id": 3, "tmdbId": 568124, "title": "Encanto", "year": 2021, "sizeOnDisk": 5e9}],
+        radarr = FakeArr({"/movie": [{"id": 3, "tmdbId": 568124, "title": "Encanto", "year": 2021, "path": "/movies/Encanto (2021)", "sizeOnDisk": 5e9}],
                           "/history/movie?movieId=3": [{"downloadId": "EEE"}],
                           "/queue?pageSize=1000": {"records": []}})
-        (title, size), qcalls, _, _ = self.run_delete("m568124", FakeArr({}), radarr, ["eee", "fff"])
+        (title, size), qcalls, refreshed, _ = self.run_delete("m568124", FakeArr({}), radarr, ["eee", "fff"])
         self.assertEqual((title, size), ("Encanto (2021)", 5e9))
+        self.assertIn(("VideoLibrary.RemoveMovie", {"movieid": 8}), refreshed)            # only Encanto leaves the TV
+        self.assertNotIn(("VideoLibrary.RemoveMovie", {"movieid": 7}), refreshed)
         self.assertIn(("DELETE", "/movie/3?deleteFiles=true&addImportExclusion=false"), radarr.calls)
         self.assertEqual(qcalls[0][1]["hashes"], "eee")
 

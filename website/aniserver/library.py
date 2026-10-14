@@ -167,6 +167,20 @@ def queue_numbers(r, live):
 DELETE_LOG = Path.home() / ".local/share/htpc-web/deleted.log"
 
 
+def remove_from_kodi(key, folder):
+    """Take a deleted show/movie off the TV right away. Kodi's own library clean only drops entries whose files it can
+    check, so a show emptied by a delete stayed behind as an empty tile (Attack on Titan, 2026-10-11)."""
+    inside = lambda f: os.path.realpath((f or "").rstrip("/")).startswith(os.path.realpath(folder))
+    if key.startswith("s"):
+        for t in (kodi_rpc("VideoLibrary.GetTVShows", {"properties": ["uniqueid", "file"]}).get("result") or {}).get("tvshows", []):
+            if str((t.get("uniqueid") or {}).get("tvdb")) == key[1:] or inside(t.get("file")):
+                kodi_rpc("VideoLibrary.RemoveTVShow", {"tvshowid": t["tvshowid"]})
+    else:
+        for m in (kodi_rpc("VideoLibrary.GetMovies", {"properties": ["uniqueid", "file"]}).get("result") or {}).get("movies", []):
+            if str((m.get("uniqueid") or {}).get("tmdb")) == key[1:] or inside(m.get("file")):
+                kodi_rpc("VideoLibrary.RemoveMovie", {"movieid": m["movieid"]})
+
+
 def delete_title(key, who):
     """Remove a show ('s<tvdb>') or movie ('m<tmdb>') completely: cancel its downloads, delete its files (library copies
     and the qBittorrent copies, so the space is really freed) and update Kodi/Jellyfin. Returns (title, bytes freed)."""
@@ -178,7 +192,7 @@ def delete_title(key, who):
             if r.get("seriesId") == s["id"]:
                 hashes.add((r.get("downloadId") or "").upper())
                 sonarr("DELETE", f"/queue/{r['id']}?removeFromClient=true&blocklist=false")
-        title, size = s["title"], (s.get("statistics") or {}).get("sizeOnDisk") or 0
+        title, size, folder = s["title"], (s.get("statistics") or {}).get("sizeOnDisk") or 0, s["path"]
         sonarr("DELETE", f"/series/{s['id']}?deleteFiles=true&addImportListExclusion=false")
     else:
         m = next(x for x in radarr("GET", "/movie") if f"m{x['tmdbId']}" == key)
@@ -187,13 +201,14 @@ def delete_title(key, who):
             if r.get("movieId") == m["id"]:
                 hashes.add((r.get("downloadId") or "").upper())
                 radarr("DELETE", f"/queue/{r['id']}?removeFromClient=true&blocklist=false")
-        title, size = f"{m['title']} ({m.get('year')})", m.get("sizeOnDisk") or 0
+        title, size, folder = f"{m['title']} ({m.get('year')})", m.get("sizeOnDisk") or 0, m["path"]
         radarr("DELETE", f"/movie/{m['id']}?deleteFiles=true&addImportExclusion=false")
     present = {t["hash"].upper() for t in qbit("/torrents/info") or []}
     gone = [h.lower() for h in hashes if h and h in present]
     if gone:
         qbit("/torrents/delete", {"hashes": "|".join(gone), "deleteFiles": "true"})
-    for refresh in (lambda: jellyfin("/Library/Refresh", "POST"), lambda: kodi_rpc("VideoLibrary.Clean", {"showdialogs": False})):
+    for refresh in (lambda: jellyfin("/Library/Refresh", "POST"), lambda: remove_from_kodi(key, folder),
+                    lambda: kodi_rpc("VideoLibrary.Clean", {"showdialogs": False})):
         try:
             refresh()
         except Exception:
