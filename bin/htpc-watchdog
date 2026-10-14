@@ -16,7 +16,8 @@
 - The TV (Kodi) must list everything Sonarr/Radarr have: folders it's behind on are scanned again (Sonarr's own Kodi
   update was skipped while a video was open - JoJo S06E04 stayed off the TV for half a day), every show folder gets a
   tvshow.nfo with its TVDB id so Kodi can't pick the wrong show by name, a wrong match is re-identified from it, and a
-  show still missing after 3 scans gets one phone alert.
+  show still missing after 3 scans gets one phone alert. Shows deleted from Sonarr whose folder is gone (with the drive
+  still there) are removed from Kodi - its own library clean leaves empty shows behind.
 - Anime (Japanese original language in Sonarr/Radarr) get their Japanese poster - the official key visual with the
   Japanese logo, from TMDB/TVDB or else AniList's cover - in Jellyfin (website, apps) and Kodi (TV), once per title.
 Usage: htpc-watchdog [--dry-run]"""
@@ -279,7 +280,15 @@ def check_kodi(state, now):
     except Exception:
         return                                          # Kodi isn't running: it scans everything when it starts
     behind = []                                         # (key, files, folder to scan, title)
-    for s in app.sonarr("GET", "/series"):
+    series = app.sonarr("GET", "/series")
+    for t in shows:                                     # deleted shows: folder gone, drive still mounted, not in Sonarr
+        folder = Path(t["file"].rstrip("/"))
+        if (not folder.exists() and folder.parent.is_dir() and any(folder.parent.iterdir())
+                and not any(same_dir(t["file"], s["path"]) for s in series)):
+            log(f"{t['label']}: no longer on the server, removing it from the TV (Kodi)")
+            if not DRY:
+                kodi("VideoLibrary.RemoveTVShow", {"tvshowid": t["tvshowid"]})
+    for s in series:
         have = (s.get("statistics") or {}).get("episodeFileCount") or 0
         folder = Path(s["path"])
         if not have or not folder.is_dir():

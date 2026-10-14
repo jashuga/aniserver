@@ -277,6 +277,12 @@ class KodiLibrary(unittest.TestCase):
         self.assertEqual(self.run_check([], [], [self.show(1, "JoJo", 4, 79151)], [], self.state, NOW, kodi_up=False), ([], []))
         self.assertFalse((self.root / "JoJo/tvshow.nfo").exists())
 
+    def test_a_deleted_show_is_removed_from_kodi_but_not_when_its_drive_is_missing(self):
+        gone = {"tvshowid": 10, "label": "Attack on Titan", "file": str(self.root / "Attack on Titan") + "/", "episode": 0, "uniqueid": {"tvdb": "267440"}}
+        unplugged = {"tvshowid": 11, "label": "On the SSD", "file": "/nonexistent-drive/Anime/Show/", "episode": 5, "uniqueid": {"tvdb": "1"}}
+        calls, _ = self.run_check([gone, unplugged, self.in_kodi(6, "JoJo", 4, 79151)], [], [self.show(1, "JoJo", 4, 79151)], [], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.RemoveTVShow", {"tvshowid": 10})])
+
     def test_still_missing_after_three_scans_is_reported_once(self):
         series, kodi = [self.show(1, "JoJo", 4, 79151)], [self.in_kodi(6, "JoJo", 3, 79151)]
         pushes = [self.run_check(kodi, [], series, [], self.state, NOW + n * 7 * HOUR)[1] for n in range(5)]
