@@ -23,7 +23,7 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
-from aniserver.streaming import HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, mpv_progress, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
+from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, mpv_progress, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
@@ -939,6 +939,14 @@ id: location.pathname.split('/').pop(), msg: String(e.reason && (e.reason.stack 
                     return self.send_json({"ok": False, "msg": "Unknown title"}, 400)
                 title, size = delete_title(key, self.user)
                 return self.send_json({"ok": True, "msg": f"Deleted {title}" + (f" and freed {size / 1e9:.1f} GB." if size else ".")})
+            if self.path == "/api/watchnow":
+                if not re.fullmatch(r"[0-9a-fA-F]{40}", f.get("hash", "")):
+                    return self.send_json({"ok": False, "msg": "Unknown download"}, 400)
+                try:
+                    watch_now(f["hash"], self.user)
+                except ValueError as e:
+                    return self.send_json({"ok": False, "msg": str(e)})
+                return self.send_json({"ok": True, "msg": "Starting on the TV in a few seconds…"})
             if self.path == "/api/played":
                 set_played(self.user, iid, f.get("on") == "1")
                 return self.send_json({"ok": True})

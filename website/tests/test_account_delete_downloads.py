@@ -208,5 +208,40 @@ class HubCards(unittest.TestCase):
         self.assertEqual(cards["Movie"]["downloads"], [])
 
 
+class WatchNow(unittest.TestCase):
+    def run_watch(self, torrent, files):
+        calls, started = [], []
+
+        def qbit(path, data=None, timeout=30):
+            if path == "/torrents/info":
+                return [torrent]
+            if path.startswith("/torrents/files"):
+                return files
+            calls.append((path, data))
+        with Patch(qbit=qbit, _watch_now=lambda *a: started.append(a)):
+            try:
+                app.watch_now(torrent["hash"].upper(), "alice")
+                error = None
+            except ValueError as e:
+                error = str(e)
+        return calls, started, error
+
+    def test_a_movie_switches_to_in_order_download_once_and_starts(self):
+        movie = {"hash": "ab" * 20, "category": "radarr", "save_path": "/dl", "seq_dl": False, "f_l_piece_prio": True}
+        files = [{"name": "Film/Film.mkv", "piece_range": [0, 9]}, {"name": "Film/sample.mkv", "piece_range": [9, 9]}]
+        calls, started, error = self.run_watch(movie, files)
+        self.assertIsNone(error)
+        self.assertEqual(calls, [("/torrents/toggleSequentialDownload", {"hashes": "ab" * 20})])     # first/last was already on
+        self.assertEqual(started[0][2]["name"], "Film/Film.mkv")                                   # not the sample
+
+    def test_batches_and_non_video_downloads_are_refused(self):
+        batch = {"hash": "cd" * 20, "category": "sonarr", "save_path": "/dl", "seq_dl": False, "f_l_piece_prio": False}
+        _, started, error = self.run_watch(batch, [{"name": "S/e01.mkv", "piece_range": [0, 4]}, {"name": "S/e02.mkv", "piece_range": [5, 9]}])
+        self.assertIn("batch", error)
+        self.assertEqual(started, [])
+        manga = {"hash": "ef" * 20, "category": "manga", "save_path": "/dl"}
+        self.assertIn("isn't a show or a movie", self.run_watch(manga, [])[2])
+
+
 if __name__ == "__main__":
     unittest.main()

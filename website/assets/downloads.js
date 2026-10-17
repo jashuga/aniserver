@@ -8,6 +8,7 @@ const eta = s => s < 60 ? 'under a minute left' : s < 3600 ? Math.round(s / 60) 
 const ago = t => { const s = Date.now() / 1000 - t; return s < 90 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago'; };
 const LABEL = {downloading: 'Downloading', stalled: 'Waiting for peers', finding: 'Finding peers', queued: 'Queued', paused: 'Paused',
   checking: 'Checking', error: 'Problem', importing: 'Finishing up', blocked: 'Couldn’t add', ready: 'Ready'};
+const tvnow = {};       // download id -> what pressing "Watch now on TV" said (kept through the 2-second redraw)
 function card(i) {
   const pct = (i.progress * 100).toFixed(i.progress < 1 ? 1 : 0);
   let line;
@@ -19,7 +20,9 @@ function card(i) {
     ' · ' + i.seeds + ' seed' + (i.seeds === 1 ? '' : 's') + ' connected' + (i.swarm ? ' (' + i.swarm.toLocaleString() + ' sharing)' : '');
   const poster = i.poster ? '<img src="' + esc(i.poster) + '" alt="" loading="lazy">' : '<div class="ph">' + (i.kind === 'manga' ? '📖' : i.kind === 'movie' ? '🎬' : '📺') + '</div>';
   const title = i.link ? '<a href="' + esc(i.link) + '">' + esc(i.title) + '</a>' : esc(i.title);
-  const watch = i.state === 'ready' && i.link ? '<a class="btn small" href="' + esc(i.link) + '">▶ Watch</a>' : '';
+  const watch = i.state === 'ready' && i.link ? '<a class="btn small" href="' + esc(i.link) + '">▶ Watch</a>'
+    : i.single && i.kind !== 'manga' && ['downloading', 'stalled', 'finding', 'queued', 'paused', 'checking'].includes(i.state)
+      ? '<button class="btn small tvnow" data-h="' + esc(i.id) + '"' + (tvnow[i.id] ? ' disabled>' + esc(tvnow[i.id]) : '>📺 Watch now on TV') + '</button>' : '';
   return '<div class="dlc s-' + i.state + '">' + poster + '<div class="dli"><div class="dlt"><span>' + title + '</span><span class="chip st">' + LABEL[i.state] + '</span></div>' +
     (i.sub ? '<div class="dls" title="' + esc(i.release) + '">' + esc(i.sub) + '</div>' : '') +
     (i.state === 'ready' || i.state === 'blocked' ? '' : '<div class="bar" role="progressbar" aria-valuenow="' + pct + '"><i style="width:' + pct + '%"></i></div>') +
@@ -34,6 +37,15 @@ function render(d) {
   sum.textContent = active.length ? active.length + ' active · ' + speed(d.speed) : '';
 }
 render(JSON.parse(document.getElementById('dldata').textContent));
+box.addEventListener('click', async e => {      // play it on the TV while it downloads
+  const b = e.target.closest('.tvnow');
+  if (!b || b.disabled) return;
+  b.disabled = true; b.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/watchnow', {method: 'POST', body: new URLSearchParams({hash: b.dataset.h})});
+    b.textContent = tvnow[b.dataset.h] = (await r.json()).msg || 'Done';
+  } catch (err) { b.textContent = tvnow[b.dataset.h] = 'That didn’t work'; }
+});
 let busy = false;
 setInterval(async () => {
   if (document.hidden || busy) return;
