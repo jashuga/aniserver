@@ -4,11 +4,14 @@
 
 Easier to set up on your own machine.
 
-- **`./install.sh`**: links the helper scripts, installs the services for wherever the repo was cloned, runs the setup
-  wizard and starts everything (no sudo).
-- **Setup wizard** (`python3 website/app.py setup`): finds Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin and Kodi,
-  reads their API keys and media folders, creates a Jellyfin API key from an admin login, and creates the owner's login
-  (password + authenticator app). Fixes the first-login problem on a fresh install.
+- **`./install.sh`**: downloads whatever is missing of Sonarr, Radarr, Prowlarr, qBittorrent and Jellyfin
+  (`setup/prereqs.sh`: into `~/.local/opt` as user services, no sudo), links the helper scripts, installs the services
+  for wherever the repo was cloned, runs the setup wizard and starts everything.
+- **Setup wizard** (`python3 website/app.py setup`): finds the programs and their API keys, then connects them: media
+  folders, qBittorrent as the download client, Prowlarr feeding Sonarr/Radarr (with Nyaa if there's no indexer yet),
+  Jellyfin's first-run setup (the owner becomes its admin, same password) and its Anime/Movies libraries. Creates the
+  owner's login (password + authenticator app). Safe to re-run: anything already set up is left alone.
+- **ffprobe** from Jellyfin's ffmpeg is used when there's no system ffmpeg.
 - **Everything machine-specific is a setting** (`config.example.json` lists them): service addresses and API keys,
   media folders (one drive or two), home networks, the Sonarr profiles.
 - **Optional parts switch off cleanly**: no Kodi hides the TV buttons, no Prowlarr/Nyaa hides manga, no ntfy topic

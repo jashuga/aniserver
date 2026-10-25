@@ -2,7 +2,7 @@
 # aniserver installer, run from the cloned repo as your normal user (no sudo):
 #   links the helper scripts into ~/.local/bin, installs the website and safety-net services for this repo's location,
 #   runs the setup wizard if there are no settings yet, and starts everything.
-# Needs Python 3.12+ and Sonarr, Radarr, qBittorrent and Jellyfin already running (setup/ has scripts for those).
+# Needs Python 3.12+. Sonarr, Radarr, Prowlarr, qBittorrent and Jellyfin are downloaded too if they're missing.
 set -e
 REPO=$(cd "$(dirname "$0")" && pwd)
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
@@ -14,6 +14,8 @@ for unit in manga-request.service htpc-watchdog.service htpc-watchdog.timer; do
   sed "s|%h/aniserver|$REPO|g" "$REPO/systemd/user/$unit" > "$HOME/.config/systemd/user/$unit"
 done
 echo "✓ services installed for $REPO"
+
+"$REPO/setup/prereqs.sh"
 
 if [ ! -f "${ANISERVER_CONFIG:-$HOME/.config/manga-request/config.json}" ]; then
   python3 "$REPO/website/app.py" setup

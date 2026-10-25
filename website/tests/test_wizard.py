@@ -11,45 +11,59 @@ from aniserver import wizard
 
 
 class Wizard(unittest.TestCase):
-    def test_fresh_install_writes_the_settings_and_creates_the_owners_login(self):
+    def test_fresh_install_connects_the_programs_writes_the_settings_and_creates_the_login(self):
         answers = {"Your user name": "alice", "Your display name": "Alice", "Other people": "bob, carol",
-                   "Public address of the website": "", "Password for alice": "a long enough password", "Repeat it": "a long enough password",
-                   "6-digit code": "123456"}
+                   "Public address of the website": "", "Password for alice": "a long enough password",
+                   "Repeat it": "a long enough password", "6-digit code": "123456"}
+        calls = []
 
         def ask(question, default="", secret=False):
             return next((v for k, v in answers.items() if question.startswith(k)), default)
-
-        def http(url, data=None, headers=None, method=None, timeout=8):
-            if url.endswith("/rootfolder"):
-                return [{"path": "/media/anime"}] if ":8989" in url else [{"path": "/media/movies"}]
-            if url.endswith("/api/v1/indexer"):
-                return [{"id": 3, "name": "Nyaa.si"}, {"id": 5, "name": "Nyaa.si (Manga)"}, {"id": 4, "name": "Other"}]
-            return "v5.0"
+        fakes = dict(
+            ask=ask, yes=lambda question, default=True: False,                                      # no Kodi
+            reachable=lambda url: not url.endswith("/jsonrpc"), arr_settings=lambda app_name: (None, f"key-{app_name.lower()}"),
+            http=lambda url, data=None, headers=None, method=None, timeout=20: "v5.0",            # qBittorrent answers
+            ensure_root_folder=lambda url, key, ver, folder: [str(folder)],
+            ensure_download_client=lambda *a: calls.append(("download client", a[4])) or True,
+            ensure_prowlarr=lambda url, key, apps: calls.append(("prowlarr", [a[0] for a in apps])) or ["Sonarr", "Radarr", "Nyaa.si"],
+            nyaa_indexer=lambda url, key: 5,
+            jellyfin_first_run=lambda url, user, pw: calls.append(("jellyfin admin", user, pw)) or True,
+            jellyfin_token=lambda url, user, pw: "token", jellyfin_api_key=lambda url, token: "jf-key",
+            ensure_libraries=lambda url, token, anime, movies: calls.append(("libraries", anime, movies)) or ["Anime", "Movies"])
         with tempfile.TemporaryDirectory() as d:
             conf_file, users_file = Path(d) / "config.json", Path(d) / "remote-users.json"
-            saved = (wizard.CONFIG_FILE, wizard.ask, wizard.yes, wizard.http, wizard.reachable, wizard.api_key_from_disk, wizard.jellyfin_key)
-            wizard.CONFIG_FILE, wizard.ask, wizard.http = conf_file, ask, http
-            wizard.yes = lambda question, default=True: False                       # no Kodi
-            wizard.reachable = lambda url: not url.endswith("/jsonrpc")
-            wizard.api_key_from_disk = lambda app_name: f"key-{app_name.lower()}"
-            wizard.jellyfin_key = lambda url: "jf-key"
+            saved = {k: getattr(wizard, k) for k in [*fakes, "CONFIG_FILE", "MEDIA"]}
+            for k, v in {**fakes, "CONFIG_FILE": conf_file, "MEDIA": Path("/media")}.items():
+                setattr(wizard, k, v)
             try:
                 with Patch(REMOTE_USERS_FILE=users_file, totp_ok=lambda secret, code, last=0: 42), contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(wizard.main(), 0)
             finally:
-                (wizard.CONFIG_FILE, wizard.ask, wizard.yes, wizard.http, wizard.reachable, wizard.api_key_from_disk, wizard.jellyfin_key) = saved
+                for k, v in saved.items():
+                    setattr(wizard, k, v)
+            self.assertIn(("download client", "sonarr"), calls)
+            self.assertIn(("prowlarr", ["Sonarr", "Radarr"]), calls)
+            self.assertIn(("jellyfin admin", "alice", "a long enough password"), calls)      # one password for both
+            self.assertIn(("libraries", ["/media/Anime"], ["/media/Movies"]), calls)
             conf = json.loads(conf_file.read_text())
             self.assertEqual(oct(conf_file.stat().st_mode & 0o777), "0o600")
             self.assertEqual((conf["sonarr_url"], conf["sonarr_key"], conf["radarr_key"], conf["jellyfin_key"]),
                              ("http://localhost:8989", "key-sonarr", "key-radarr", "jf-key"))
-            self.assertEqual((conf["anime_folders"], conf["movie_folders"]), (["/media/anime"], ["/media/movies"]))
+            self.assertEqual((conf["anime_folders"], conf["movie_folders"]), (["/media/Anime"], ["/media/Movies"]))
             self.assertEqual((conf["manga"], conf["indexer_id"], conf["kodi_url"]), (True, 5, ""))
             self.assertEqual(list(conf["profiles"]), ["alice", "bob", "carol"])
-            self.assertEqual(conf["tv_profile"], "alice")
             self.assertEqual(len(conf["secret"]), 64)
             users = json.loads(users_file.read_text())
             self.assertEqual(list(users), ["alice"])
             self.assertTrue(app.check_password("a long enough password", users["alice"]["pw"]))
+
+    def test_items_are_built_from_the_programs_own_schema(self):
+        schema = [{"implementation": "Transmission", "fields": []},
+                  {"implementation": "QBittorrent", "fields": [{"name": "host", "value": "localhost"}, {"name": "port", "value": 8080},
+                                                              {"name": "tvCategory", "value": "tv-sonarr"}, {"name": "useSsl", "value": False}]}]
+        item = wizard.from_schema(schema, "QBittorrent", {"port": 8090, "tvCategory": "sonarr", "movieCategory": "radarr"}, name="qBittorrent")
+        self.assertEqual({f["name"]: f["value"] for f in item["fields"]}, {"host": "localhost", "port": 8090, "tvCategory": "sonarr", "useSsl": False})
+        self.assertEqual(item["name"], "qBittorrent")
 
 
 class OptionalParts(unittest.TestCase):

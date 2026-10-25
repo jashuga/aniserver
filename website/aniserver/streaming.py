@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import re
 import socket
 import struct
@@ -203,7 +204,7 @@ def bitrate_profile(item_id, path):
             _RATES["_"] = {}
     if item_id in _RATES:
         return _RATES[item_id]
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", path],
+    out = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", path],
                          capture_output=True, text=True, timeout=300).stdout
     per_sec = {}
     for line in out.splitlines():
@@ -341,6 +342,7 @@ def mpv_resume_at(path, seconds):
         f.unlink()
 
 
+FFPROBE = shutil.which("ffprobe") or str(Path.home() / ".local/opt/jellyfin-ffmpeg/ffprobe")   # system ffmpeg, else Jellyfin's
 VIDEO_FILES = (".mkv", ".mp4", ".m4v", ".avi", ".webm", ".ts")
 NOW_PLAYING_SOCK = f"/run/user/{os.getuid()}/mpv-now.sock"
 

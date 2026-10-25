@@ -8,8 +8,6 @@ OPT="$HOME/.local/opt"; UNITS="$HOME/.config/systemd/user"; REPO=$(cd "$(dirname
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
 SONARR_PORT=${SONARR_PORT:-8989}; RADARR_PORT=${RADARR_PORT:-7878}; PROWLARR_PORT=${PROWLARR_PORT:-9696}
 QBIT_PORT=${QBIT_PORT:-8090}; JELLYFIN_PORT=${JELLYFIN_PORT:-8096}
-[ "$(uname -m)" = x86_64 ] || { echo "The automatic install only knows x86_64 (64-bit Intel/AMD) downloads. Install the programs yourself."; exit 1; }
-
 answers() { curl -s -o /dev/null -m 3 "http://localhost:$1/" ; }
 have() { answers "$2" || [ -x "$OPT/$1/$1" ] || $SYSTEMCTL list-unit-files 2>/dev/null | grep -qi "^$1"; }
 
@@ -24,6 +22,7 @@ if [ ${#missing[@]} -eq 0 ]; then
   exit 0
 fi
 echo "Not installed yet: ${missing[*]}"
+[ "$(uname -m)" = x86_64 ] || { echo "The automatic install only knows x86_64 (64-bit Intel/AMD) downloads. Install them yourself, then run ./install.sh again."; exit 1; }
 if [ -t 0 ]; then read -r -p "Download and install them for $USER (about 600 MB, no sudo)? [Y/n] " ok; [[ "$ok" =~ ^[Nn] ]] && exit 0; fi
 ldconfig -p 2>/dev/null | grep -q libicuuc || echo "! Sonarr/Radarr/Prowlarr need ICU. If they don't start: sudo apt install libicu-dev"
 mkdir -p "$OPT" "$UNITS"

@@ -25,17 +25,18 @@ and Kodi, running on one Ubuntu machine.
 
 ## Getting started
 
-You need an Ubuntu/Debian machine with **Python 3.12+**, and **Sonarr, Radarr, qBittorrent and Jellyfin** installed and
-running (Prowlarr for indexers and manga, Kodi for the TV: both optional). `setup/` has the scripts this machine used.
+You need a 64-bit Ubuntu/Debian machine with **Python 3.12+**. Kodi for the TV is optional (`sudo apt install kodi mpv`).
 
 ```bash
 git clone https://github.com/jashuga/aniserver.git ~/aniserver
 cd ~/aniserver && ./install.sh
 ```
 
-`install.sh` runs the setup wizard. It finds the programs, reads their API keys and media folders, asks a few
-questions, and creates your login (password + authenticator app). Then it starts the site on port 5050. Run
-`python3 website/app.py setup` again any time to change the answers. Every setting is listed in
+`install.sh` downloads whatever is missing of Sonarr, Radarr, Prowlarr, qBittorrent and Jellyfin (into
+`~/.local/opt`, as user services, no sudo; ones you already have are used as they are). Then the setup wizard connects
+them to each other (media folders in `~/Media`, qBittorrent as the downloader, the Nyaa indexer, Jellyfin's libraries),
+asks a few questions, and creates your login (password + authenticator app; the same password signs you into
+Jellyfin). The site starts on port 5050. Run `python3 website/app.py setup` again any time to change the answers. Every setting is listed in
 `website/config.example.json`; parts you skip (the TV, manga, phone alerts) stay hidden.
 
 To reach it from outside the home, put it behind HTTPS (e.g. Caddy) and set `public_host`.
@@ -47,11 +48,11 @@ Tests (no real services needed): `python3 -m unittest discover -s website/tests`
 | Path | What's there |
 |---|---|
 | `website/` | The site: `app.py` (entry point and `setup`), `aniserver/` (one module per job), `assets/` (CSS/JS), `tests/` |
-| `install.sh` | Installs the services and runs the setup wizard |
+| `install.sh` | Installs everything and runs the setup wizard |
 | `bin/` | Safety net (`htpc-watchdog`), phone notifications, dynamic DNS, Sonarr/qBittorrent hooks |
 | `systemd/user/` | Services and timers |
 | `kodi/`, `mpv/`, `recyclarr/` | TV player and quality-profile config |
-| `setup/` | One-time root setup scripts (examples from this machine) |
+| `setup/` | `prereqs.sh` (downloads the programs) and optional root setup scripts (examples from this machine) |
 
 Only download what you have the right to.
 
