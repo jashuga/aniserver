@@ -8,6 +8,7 @@ from pathlib import Path
 
 os.environ["ANISERVER_NO_NETWORK"] = "1"
 ROOT = Path(__file__).resolve().parent.parent          # website/
+os.environ["ANISERVER_CONFIG"] = str(ROOT / "config.example.json")   # same settings on every machine (and in CI)
 spec = importlib.util.spec_from_file_location("app", ROOT / "app.py")
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)

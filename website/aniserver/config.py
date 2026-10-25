@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 
 
-CONF = json.loads((Path.home() / ".config/manga-request/config.json").read_text())
+# ANISERVER_CONFIG points somewhere else (the tests use config.example.json)
+CONFIG_FILE = Path(os.environ.get("ANISERVER_CONFIG") or Path.home() / ".config/manga-request/config.json")
+CONF = json.loads(CONFIG_FILE.read_text())
 PROWLARR = "http://localhost:9696/api/v1"
 QBIT = "http://localhost:8090/api/v2"
 RSS_FOLDER = "Manga"

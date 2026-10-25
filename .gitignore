@@ -7,3 +7,5 @@ __pycache__/
 config.json
 htpc-credentials.txt
 remote-users.json
+*.pyc
+.DS_Store

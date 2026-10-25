@@ -40,7 +40,8 @@ app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)                     # reuses the website's Sonarr/Radarr helpers (server doesn't start)
 STATE = HOME / ".local/share/htpc-web/watchdog.json"
 LOG = HOME / ".local/share/htpc-web/watchdog.log"
-TOPIC = (HOME / ".config/htpc-ntfy-topic").read_text().strip()
+TOPIC_FILE = HOME / ".config/htpc-ntfy-topic"           # ntfy topic for phone alerts (none: alerts are only logged)
+TOPIC = TOPIC_FILE.read_text().strip() if TOPIC_FILE.exists() else ""
 DRY = "--dry-run" in sys.argv
 HOUR = 3600
 USER = getpass.getuser()
@@ -94,7 +95,7 @@ def check_services(state, now):
 
 def push(title, message):
     log(f"alert: {title} | {message}")
-    if DRY:
+    if DRY or not TOPIC:
         return
     body = {"topic": TOPIC, "title": title, "message": message, "tags": ["warning"], "priority": 3,
             "click": f"https://{app.CONF['public_host']}/shows"}

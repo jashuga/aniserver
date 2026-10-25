@@ -1,11 +1,29 @@
 # aniserver
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg) ![No dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+
 A Dell Vostro 5490 laptop turned into a 24/7 anime HTPC on Ubuntu 25.10. It downloads new episodes automatically,
 plays them on the living-room TV, streams to phones and PCs anywhere, and runs a small manga setup.
 Its centerpiece is **aniserver**, a Netflix/Crunchyroll-style website with its own adaptive video player.
 
 This is a personal setup published as a reference: the scripts assume one Ubuntu machine, one user account and the
 services below. Only download what you have the right to.
+
+| Show page | My Shows | Downloads |
+|---|---|---|
+| ![Show page](docs/title.png) | ![My Shows](docs/my-shows.png) | ![Downloads](docs/downloads.png) |
+
+**Highlights**
+
+- Add a show by its anime name ("jjk", "re zero"); seasons are matched to TVDB **by air date**, so split cours,
+  continuing seasons and Netflix-first releases download the right episodes.
+- A player that picks the lightest path the connection allows: direct play at home, original quality repackaged, or
+  a GPU-encoded adaptive ladder away from home, with full-quality ASS subtitles rendered in the browser.
+- Watch on the TV while it's still downloading (in-order download, plays once the start is there).
+- A safety net that fixes or reports what usually goes wrong: shows left unmonitored, stuck or misnamed batch
+  imports, the TV (Kodi) missing episodes or matching the wrong show, services that stop answering.
+- Japanese key-visual posters for anime, everywhere.
+- One login per person (password + authenticator code once per browser), each with their own watch history.
 
 ## What runs where
 
@@ -38,7 +56,7 @@ Python standard library only, no framework. `website/app.py` is the entry point,
   season number, because TVDB's season numbers often differ from the anime's (continuing seasons, split cours,
   Netflix-first ONAs, OVAs).
 - **Downloads**: live progress from qBittorrent joined with Sonarr/Radarr (what each torrent is, importing, ready to watch,
-  or couldn't be added).
+  or couldn't be added), and **Watch now on TV** for a movie or episode that's still downloading.
 - **Manga**: Nyaa manga search, downloads, and follows (qBittorrent RSS rules).
 - **Player** (`/watch/<id>`). Picks the lightest path the browser and connection can handle:
   1. *Direct play* of the original file (home network; Range requests, instant seeking)
@@ -72,8 +90,10 @@ Python standard library only, no framework. `website/app.py` is the entry point,
 
 - `bin/htpc-watchdog` (`htpc-watchdog.timer`, every 15 min): safety net. It restarts services that stop answering,
   switches a show back on if nothing in it is set to download, re-searches aired episodes and released movies that are
-  still missing, clears finished downloads Sonarr/Radarr can't import when the library already has them, and alerts the
-  phone (ntfy) when something stays broken
+  still missing, clears finished downloads Sonarr/Radarr can't import when the library already has them (and imports
+  batches Sonarr refused because it misread their name), keeps Kodi's library in step with Sonarr/Radarr (scans what's
+  missing, `tvshow.nfo` with the TVDB id so Kodi can't pick the wrong show, removes deleted shows), gives anime their
+  Japanese posters, and alerts the phone (ntfy) when something stays broken
 - `bin/htpc-notify`: Sonarr/Radarr hook that sends one ntfy push per finished download, with *Watch* and *Play on TV* buttons
 - `bin/ddns-update` (`ddns-update.timer`): keeps the public hostnames pointed at the home internet address (Namecheap
   dynamic DNS). It checks every 5 minutes and only contacts Namecheap when the address changed (or twice a day)
@@ -112,3 +132,7 @@ It also refuses private words (people's names, the live domain) listed in `~/.co
   License 1.1); see the JASSUB repository for those licenses.
 
 The server serves `.gz` copies of the static files when present (`gzip -9 -k` the files in `website/static`).
+
+## License
+
+[MIT](LICENSE) © 2026 jashuga. The bundled third-party libraries keep their own licenses (above).
