@@ -22,5 +22,6 @@
   "komga_password": "Komga admin password",
   "reserved_passwords": [
     "passwords of local services that must not be reused for internet logins"
-  ]
+  ],
+  "anime_artwork": "japanese"
 }

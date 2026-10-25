@@ -18,10 +18,9 @@
   tvshow.nfo with its TVDB id so Kodi can't pick the wrong show by name, a wrong match is re-identified from it, and a
   show still missing after 3 scans gets one phone alert. Shows deleted from Sonarr whose folder is gone (with the drive
   still there) are removed from Kodi - its own library clean leaves empty shows behind.
-- Anime (Japanese original language in Sonarr/Radarr) get their Japanese poster - the official key visual with the
-  Japanese logo, from TMDB/TVDB or else AniList's cover - in Jellyfin (website, apps) and Kodi (TV), once per title.
+- Anime (Japanese original language in Sonarr/Radarr) get their poster and title logo in the language chosen on the
+  website's Account page (Japanese key visuals or English), in Jellyfin (website, apps) and Kodi (TV).
 Usage: htpc-watchdog [--dry-run]"""
-import base64
 import calendar
 import getpass
 import importlib.util
@@ -333,53 +332,8 @@ def check_kodi(state, now):
             kodi("VideoLibrary.Scan", {"directory": due[0][0], "showdialogs": False} if len(due) == 1 else {"showdialogs": False})
 
 
-def japanese_poster(item, title):
-    """Best Japanese-language poster Jellyfin can fetch (most votes), else AniList's cover (the Japanese key visual)."""
-    imgs = app.jellyfin(f"/Items/{item['Id']}/RemoteImages?type=Primary&includeAllLanguages=true").get("Images") or []
-    ja = sorted((x for x in imgs if x.get("Language") == "ja"), key=lambda x: (-(x.get("VoteCount") or 0), -(x.get("CommunityRating") or 0)))
-    if ja:
-        return ja[0]["Url"], ja[0]["ProviderName"]
-    media = app.graphql("query($s:String){Media(search:$s,type:ANIME){coverImage{extraLarge}}}", {"s": title}).get("Media") or {}
-    url = (media.get("coverImage") or {}).get("extraLarge")
-    return (url, "AniList") if url else (None, None)
-
-
-def set_jellyfin_poster(item_id, url, provider):
-    if provider in ("TheMovieDb", "TheTVDB"):
-        app.jellyfin(f"/Items/{item_id}/RemoteImages/Download?" + urllib.parse.urlencode({"type": "Primary", "imageUrl": url, "providerName": provider}), "POST")
-        return
-    data = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": app.UA}), timeout=30).read()   # not a Jellyfin provider: upload it
-    req = urllib.request.Request(f"{app.JELLYFIN}/Items/{item_id}/Images/Primary", data=base64.b64encode(data), method="POST",
-                                 headers={"Content-Type": "image/jpeg", "Authorization": f'MediaBrowser Token="{app.CONF["jellyfin_key"]}"'})
-    urllib.request.urlopen(req, timeout=30).read()
-
-
 def check_posters(state, now):
-    done = state.setdefault("posters", {})
-    japanese = {f"s{s['tvdbId']}": s["title"] for s in app.sonarr("GET", "/series") if (s.get("originalLanguage") or {}).get("name") == "Japanese"}
-    japanese.update({f"m{m['tmdbId']}": m["title"] for m in app.radarr("GET", "/movie") if (m.get("originalLanguage") or {}).get("name") == "Japanese"})
-    for item in app.jellyfin("/Items?Recursive=true&IncludeItemTypes=Series,Movie&Fields=ProviderIds")["Items"]:
-        ids = item.get("ProviderIds") or {}
-        key = f"s{ids.get('Tvdb')}" if item["Type"] == "Series" else f"m{ids.get('Tmdb')}"
-        if key in japanese and key not in done:
-            url, provider = japanese_poster(item, japanese[key])
-            if url:
-                log(f"{item['Name']}: Japanese poster ({provider})")
-                if not DRY:
-                    set_jellyfin_poster(item["Id"], url, provider)
-                done[key] = url
-    try:                                                # the TV: Kodi keeps its own artwork
-        shows = kodi("VideoLibrary.GetTVShows", {"properties": ["uniqueid", "art"]}).get("tvshows", [])
-        movies = kodi("VideoLibrary.GetMovies", {"properties": ["uniqueid", "art"]}).get("movies", [])
-    except Exception:
-        return
-    for kind, items, method, idkey in (("s", shows, "VideoLibrary.SetTVShowDetails", "tvshowid"), ("m", movies, "VideoLibrary.SetMovieDetails", "movieid")):
-        for t in items:
-            url = done.get(kind + str((t.get("uniqueid") or {}).get("tvdb" if kind == "s" else "tmdb")))
-            if url and url not in urllib.parse.unquote((t.get("art") or {}).get("poster", "")):
-                log(f"{t['label']}: Japanese poster on the TV")
-                if not DRY:
-                    kodi(method, {idkey: t[idkey], "art": {"poster": url}})
+    app.apply_anime_artwork(dry=DRY, log=log)          # anime posters + title logos in the language set on the Account page
 
 
 def main():

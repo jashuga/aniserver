@@ -243,5 +243,63 @@ class WatchNow(unittest.TestCase):
         self.assertIn("isn't a show or a movie", self.run_watch(manga, [])[2])
 
 
+class AnimeArtwork(unittest.TestCase):
+    """Anime posters and title logos follow the Account page setting (Japanese or English), on the site and the TV."""
+
+    def run_apply(self, lang, kodi_shows, state_file):
+        applied, kodi_calls = [], []
+        series = [{"tvdbId": 1, "title": "Re:Zero", "originalLanguage": {"name": "Japanese"}},
+                  {"tvdbId": 2, "title": "Castlevania", "originalLanguage": {"name": "English"}},
+                  {"tvdbId": 3, "title": "UBW", "originalLanguage": {"name": "Japanese"}}]
+        items = [{"Id": "a", "Name": "Re:Zero", "Type": "Series", "ProviderIds": {"Tvdb": "1"}},
+                 {"Id": "b", "Name": "Castlevania", "Type": "Series", "ProviderIds": {"Tvdb": "2"}},
+                 {"Id": "c", "Name": "UBW", "Type": "Series", "ProviderIds": {"Tvdb": "3"}}]
+        remote = {("a", "Primary"): [{"Language": "en", "Url": "https://img/en.jpg", "VoteCount": 9, "ProviderName": "TheMovieDb"},
+                                     {"Language": "ja", "Url": "https://img/ja-few.jpg", "VoteCount": 1, "ProviderName": "TheMovieDb"},
+                                     {"Language": "ja", "Url": "https://img/ja-best.jpg", "VoteCount": 5, "ProviderName": "TheMovieDb"}],
+                  ("a", "Logo"): [{"Language": "ja", "Url": "https://img/logo-ja.png", "ProviderName": "TheMovieDb"},
+                                  {"Language": "en", "Url": "https://img/logo-en.png", "ProviderName": "TheMovieDb"}],
+                  ("c", "Primary"): [{"Language": "en", "Url": "https://img/ubw-en.jpg", "ProviderName": "TheMovieDb"}], ("c", "Logo"): []}
+
+        def jellyfin(path, method="GET", body=None):
+            if path.startswith("/Items?"):
+                return {"Items": items}
+            item, kind = path.split("/")[2], path.split("type=")[1].split("&")[0]
+            return {"Images": remote[(item, kind)]}
+
+        def kodi_rpc(method, params=None):
+            if method == "VideoLibrary.GetTVShows":
+                return {"result": {"tvshows": kodi_shows}}
+            if method == "VideoLibrary.GetMovies":
+                return {"result": {"movies": []}}
+            kodi_calls.append((method, params))
+            return {"result": "OK"}
+        saved = app.CONF.get("anime_artwork")
+        app.CONF["anime_artwork"] = lang
+        try:
+            with Patch(sonarr=lambda method, path, body=None, timeout=60: series, radarr=lambda method, path, body=None, timeout=60: [],
+                       jellyfin=jellyfin, kodi_rpc=kodi_rpc, ARTWORK_STATE=state_file,
+                       graphql=lambda query, variables=None: {"Media": {"coverImage": {"extraLarge": "https://anilist/ubw.jpg"}}},
+                       set_image=lambda item_id, kind, url, provider: applied.append((item_id, kind, url))):
+                app.apply_anime_artwork(log=lambda msg: None)
+        finally:
+            app.CONF["anime_artwork"] = saved
+        return applied, kodi_calls
+
+    def test_japanese_then_english_on_the_site_and_the_tv(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "artwork.json"
+            kodi = [{"tvshowid": 6, "label": "Re:Zero", "uniqueid": {"tvdb": "1"}, "art": {"poster": "image://https%3a%2f%2fimg%2fen.jpg/"}}]
+            applied, kodi_calls = self.run_apply("japanese", kodi, state)
+            self.assertEqual(applied, [("a", "Primary", "https://img/ja-best.jpg"), ("a", "Logo", "https://img/logo-ja.png"),
+                                       ("c", "Primary", "https://anilist/ubw.jpg")])          # most votes; AniList when TMDB has none
+            self.assertEqual(kodi_calls, [("VideoLibrary.SetTVShowDetails",
+                                           {"tvshowid": 6, "art": {"poster": "https://img/ja-best.jpg", "clearlogo": "https://img/logo-ja.png"}})])
+            kodi[0]["art"] = {"poster": "image://https%3a%2f%2fimg%2fja-best.jpg/", "clearlogo": "image://https%3a%2f%2fimg%2flogo-ja.png/"}
+            self.assertEqual(self.run_apply("japanese", kodi, state), ([], []))             # nothing twice
+            applied, _ = self.run_apply("english", kodi, state)                             # switched on the Account page
+            self.assertEqual(applied[:2], [("a", "Primary", "https://img/en.jpg"), ("a", "Logo", "https://img/logo-en.png")])
+
+
 if __name__ == "__main__":
     unittest.main()

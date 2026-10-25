@@ -10,7 +10,7 @@ First public release.
   network; JASSUB subtitles with the release's fonts; skip opening, next episode, resume, Continue on TV.
 - **Adding anime**: AniList → Fribb → TVDB, seasons matched by air date (split cours, continuing seasons, Netflix-first
   dates, OVAs), never leaves a show with nothing monitored.
-- **TV**: Kodi + mpv; watch while downloading; Kodi's library kept in step automatically; Japanese anime posters.
+- **TV**: Kodi + mpv; watch while downloading; Kodi's library kept in step automatically.
+- **Anime artwork** in Japanese or English (posters and title logos), set on the Account page.
 - **Safety net** (`htpc-watchdog`): service restarts, re-searches, stuck/misread imports, Kodi sync, phone alerts.
-- **Repo hygiene**: no secrets or personal names in any file (`check-secrets.sh` blocks them on every auto-sync);
-  52 tests that run without any of the real services.
+- 52 tests that run without any of the real services.

@@ -23,6 +23,7 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
+from aniserver.artwork import apply_anime_artwork, artwork_language, set_artwork_language
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, mpv_progress, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
@@ -229,6 +230,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/login")
         if self.path.startswith("/api/"):
             return self.api_post(f)
+        if self.path == "/account/artwork":
+            if self.user != OWNER or f.get("lang") not in ("japanese", "english"):
+                return self.redirect("/account")
+            set_artwork_language(f["lang"])
+            threading.Thread(target=apply_anime_artwork, kwargs={"log": lambda msg: None}, daemon=True).start()
+            return self.redirect("/account?ok=" + urllib.parse.quote(f"Anime artwork set to {f['lang'].title()}. It updates over the next minute."))
         if self.path in ("/account/password", "/account/jellyfin"):
             return self.account_post(f)
         if self.path.startswith("/security/"):
@@ -430,7 +437,16 @@ class Handler(BaseHTTPRequestHandler):
 <div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")} (user <b>{esc(self.user)}</b>).</p>
 <form method="post" action="/account/jellyfin" class="pwform">{field("current", "Current Jellyfin password", "current-password")}
 {field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}<button>Change Jellyfin password</button></form>
-<p class="hint">Apps that are already signed in stay signed in.</p></div></div>"""
+<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.artwork_card()}</div>"""
+
+    def artwork_card(self):
+        if self.user != OWNER:
+            return ""
+        cur = artwork_language()
+        opt = lambda v, label: f'<label style="margin-right:18px"><input type="radio" name="lang" value="{v}"{" checked" if cur == v else ""}> {label}</label>'
+        return f"""<div class="card acard"><h3>Anime artwork</h3><p class="muted">Posters and title logos for anime, on this site, the Jellyfin apps and the TV.</p>
+<form method="post" action="/account/artwork" class="pwform"><div style="margin:6px 0 12px">{opt("japanese", "Japanese")}{opt("english", "English")}</div>
+<button>Save</button></form></div>"""
 
     def account_post(self, f):
         ip = self.client_ip()
