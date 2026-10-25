@@ -1,0 +1,12 @@
+[Unit]
+Description=Sonarr (TV series and anime)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/opt/Sonarr/Sonarr -nobrowser -data=%h/.config/Sonarr
+Restart=on-failure
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

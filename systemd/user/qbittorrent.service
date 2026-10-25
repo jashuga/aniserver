@@ -1,0 +1,12 @@
+[Unit]
+Description=qBittorrent (downloads)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/opt/qbittorrent/qbittorrent-nox --webui-port=8090
+Restart=on-failure
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

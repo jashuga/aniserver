@@ -1,0 +1,11 @@
+[Unit]
+Description=Prowlarr (indexers for Sonarr and Radarr)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/opt/Prowlarr/Prowlarr -nobrowser -data=%h/.config/Prowlarr
+Restart=on-failure
+Nice=10
+
+[Install]
+WantedBy=default.target
