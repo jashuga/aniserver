@@ -25,12 +25,20 @@ and Kodi, running on one Ubuntu machine.
 
 ## Getting started
 
-1. Install Jellyfin, Sonarr, Radarr, Prowlarr and qBittorrent (`setup/` has the scripts this machine used) and Python 3.12+.
-2. Copy `website/config.example.json` to `~/.config/manga-request/config.json` (mode 600) and fill in the API keys,
-   a long random `secret` and the people who'll use it.
-3. Install the user services in `systemd/user/` and start the site: `systemctl --user enable --now manga-request`
-   (port 5050; put it behind HTTPS, e.g. Caddy, to reach it from outside).
-4. Set up each person's login at `/security` from the home network.
+You need an Ubuntu/Debian machine with **Python 3.12+**, and **Sonarr, Radarr, qBittorrent and Jellyfin** installed and
+running (Prowlarr for indexers and manga, Kodi for the TV: both optional). `setup/` has the scripts this machine used.
+
+```bash
+git clone https://github.com/jashuga/aniserver.git ~/aniserver
+cd ~/aniserver && ./install.sh
+```
+
+`install.sh` runs the setup wizard. It finds the programs, reads their API keys and media folders, asks a few
+questions, and creates your login (password + authenticator app). Then it starts the site on port 5050. Run
+`python3 website/app.py setup` again any time to change the answers. Every setting is listed in
+`website/config.example.json`; parts you skip (the TV, manga, phone alerts) stay hidden.
+
+To reach it from outside the home, put it behind HTTPS (e.g. Caddy) and set `public_host`.
 
 Tests (no real services needed): `python3 -m unittest discover -s website/tests`
 
@@ -38,11 +46,12 @@ Tests (no real services needed): `python3 -m unittest discover -s website/tests`
 
 | Path | What's there |
 |---|---|
-| `website/` | The site: `app.py` (entry point), `aniserver/` (one module per job), `assets/` (CSS/JS), `tests/` |
+| `website/` | The site: `app.py` (entry point and `setup`), `aniserver/` (one module per job), `assets/` (CSS/JS), `tests/` |
+| `install.sh` | Installs the services and runs the setup wizard |
 | `bin/` | Safety net (`htpc-watchdog`), phone notifications, dynamic DNS, Sonarr/qBittorrent hooks |
 | `systemd/user/` | Services and timers |
 | `kodi/`, `mpv/`, `recyclarr/` | TV player and quality-profile config |
-| `setup/` | One-time root setup scripts |
+| `setup/` | One-time root setup scripts (examples from this machine) |
 
 Only download what you have the right to.
 

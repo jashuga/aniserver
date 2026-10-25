@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0 — unreleased
+
+Easier to set up on your own machine.
+
+- **`./install.sh`**: links the helper scripts, installs the services for wherever the repo was cloned, runs the setup
+  wizard and starts everything (no sudo).
+- **Setup wizard** (`python3 website/app.py setup`): finds Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin and Kodi,
+  reads their API keys and media folders, creates a Jellyfin API key from an admin login, and creates the owner's login
+  (password + authenticator app). Fixes the first-login problem on a fresh install.
+- **Everything machine-specific is a setting** (`config.example.json` lists them): service addresses and API keys,
+  media folders (one drive or two), home networks, the Sonarr profiles.
+- **Optional parts switch off cleanly**: no Kodi hides the TV buttons, no Prowlarr/Nyaa hides manga, no ntfy topic
+  means no phone pushes.
+
 ## v1.0.0 — 2026-10-25
 
 First public release.

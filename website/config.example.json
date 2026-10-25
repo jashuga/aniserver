@@ -1,8 +1,6 @@
 {
   "port": 5050,
-  "secret": "long random string (signs cookies, links and stream tokens)",
-  "public_host": "tv.example.com",
-  "watch_host": "watch.example.com",
+  "secret": "long random string (setup writes one)",
   "profiles": {
     "alice": [
       "Alice",
@@ -14,14 +12,37 @@
     ]
   },
   "tv_profile": "alice",
+  "sonarr_url": "http://localhost:8989",
+  "radarr_url": "http://localhost:7878",
+  "prowlarr_url": "http://localhost:9696",
+  "qbittorrent_url": "http://localhost:8090",
+  "jellyfin_url": "http://localhost:8096",
+  "kodi_url": "http://localhost:8085",
+  "sonarr_key": "Sonarr API key (or leave out: read from ~/.config/Sonarr/config.xml)",
+  "radarr_key": "Radarr API key (or leave out: read from ~/.config/Radarr/config.xml)",
   "prowlarr_key": "Prowlarr API key",
   "indexer_id": 0,
   "jellyfin_key": "Jellyfin API key (Dashboard > API Keys)",
-  "kodi_password": "Kodi web server password (user kodi)",
+  "kodi_password": "Kodi web server password (user kodi); kodi_url \"\" turns the TV features off",
+  "anime_folders": [
+    "~/Media/Anime"
+  ],
+  "movie_folders": [
+    "~/Media/Anime Movies"
+  ],
+  "manga_folder": "~/Media/Manga/Volumes",
+  "manga": true,
+  "komga_url": "http://localhost:25600",
   "komga_user": "admin@example.com",
   "komga_password": "Komga admin password",
-  "reserved_passwords": [
-    "passwords of local services that must not be reused for internet logins"
+  "home_networks": [
+    "192.168.0.0/16",
+    "10.0.0.0/8"
   ],
-  "anime_artwork": "japanese"
+  "public_host": "tv.example.com",
+  "watch_host": "watch.example.com",
+  "anime_artwork": "japanese",
+  "reserved_passwords": [
+    "passwords of local services that must not be reused for website logins"
+  ]
 }

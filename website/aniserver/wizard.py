@@ -83,9 +83,10 @@ def root_folders(url, key):
 
 
 def nyaa_indexer(url, key):
-    """Prowlarr's Nyaa indexer (manga search uses it), or None."""
+    """Prowlarr's Nyaa indexer for manga search (one with "manga" in its name if there is one), or None."""
     try:
-        return next((i["id"] for i in http(f"{url}/api/v1/indexer", headers={"X-Api-Key": key}) if "nyaa" in i["name"].lower()), None)
+        nyaa = [i for i in http(f"{url}/api/v1/indexer", headers={"X-Api-Key": key}) if "nyaa" in i["name"].lower()]
+        return next((i["id"] for i in sorted(nyaa, key=lambda i: "manga" not in i["name"].lower())), None)
     except (OSError, ValueError, KeyError):
         return None
 
