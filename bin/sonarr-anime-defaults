@@ -2,22 +2,27 @@
 """Sonarr 'On Series Add' hook (runs for shows added from any device):
 1. Profile: anime (Japanese original language or 'Anime' genre) -> Series Type Anime + [Anime] Remux-1080p;
    anything else (e.g. Castlevania) -> Series Type Standard + HD-1080p.
-2. Drive: the internal NVMe while it has more than INTERNAL_RESERVE free (after subtracting what qBittorrent
-   still has to download there), otherwise the USB SSD at /mnt/media. A show explicitly added on the SSD stays
-   there. Shows on the SSD get the 'ssd' tag, which sends their downloads to the SSD too (keeps hardlinks working).
+2. Drive (only with two anime folders in config.json): the first while it has more than INTERNAL_RESERVE free (after
+   subtracting what qBittorrent still has to download there), otherwise the second. A show explicitly added on the
+   second stays there. Shows there get the 'ssd' tag, which sends their downloads there too (keeps hardlinks working).
 Then it searches, so the right releases get picked no matter what the adding browser defaulted to."""
-import json, os, re, shutil, urllib.request
+import importlib.util, json, os, shutil, urllib.request
 from pathlib import Path
 
-INTERNAL_ROOT = str(Path.home() / "Media/Anime")
-SSD_ROOT = "/mnt/media/Anime"
+spec = importlib.util.spec_from_file_location("htpc", Path(__file__).resolve().parent.parent / "website/app.py")
+app = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(app)                     # the website's settings (folders, Sonarr address/key); no server starts
+INTERNAL_ROOT = app.ANIME_FOLDERS[0]
+SSD_ROOT = app.ANIME_FOLDERS[1] if len(app.ANIME_FOLDERS) > 1 else ""
+ANIME_PROFILE = app.CONF.get("anime_profile", "[Anime] Remux-1080p")       # TRaSH's anime profile (via Recyclarr)
+STANDARD_PROFILE = app.CONF.get("standard_profile", "HD-1080p")
 INTERNAL_RESERVE = float(os.environ.get("HTPC_INTERNAL_RESERVE", 100e9))  # keep this much free for Ubuntu, manga and updates
 SSD_RESERVE = 20e9
 
 if os.environ.get("sonarr_eventtype") != "SeriesAdd":
     raise SystemExit(0)  # also covers Sonarr's "Test" button
-KEY = re.search(r"<ApiKey>(\w+)</ApiKey>", (Path.home() / ".config/Sonarr/config.xml").read_text()).group(1)
-B = "http://localhost:8989/api/v3"
+KEY = app.arr_key("Sonarr")
+B = app.SONARR
 
 def api(method, path, body=None):
     req = urllib.request.Request(B + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -30,7 +35,7 @@ def effective_free(root):
     """Free space minus what qBittorrent still has to download onto that drive."""
     dev = os.stat(root).st_dev
     pending = 0
-    with urllib.request.urlopen("http://localhost:8090/api/v2/torrents/info", timeout=30) as r:
+    with urllib.request.urlopen(app.QBIT + "/torrents/info", timeout=30) as r:
         for t in json.load(r):
             try:
                 if t["amount_left"] and os.stat(t["save_path"]).st_dev == dev:
@@ -46,15 +51,15 @@ changed = False
 # 1. profile
 profiles = {p["name"]: p["id"] for p in api("GET", "/qualityprofile")}
 is_anime = (s.get("originalLanguage") or {}).get("name") == "Japanese" or "Anime" in (s.get("genres") or [])
-want = ("anime", profiles["[Anime] Remux-1080p"]) if is_anime else ("standard", profiles["HD-1080p"])
+want = ("anime" if is_anime else "standard", profiles.get(ANIME_PROFILE if is_anime else STANDARD_PROFILE, s["qualityProfileId"]))
 if (s["seriesType"], s["qualityProfileId"]) != want:
     s["seriesType"], s["qualityProfileId"] = want
     changed = True
 
 # 2. drive
-ssd_tag = next(t["id"] for t in api("GET", "/tag") if t["label"] == "ssd")
-ssd_ok = os.path.ismount("/mnt/media") and os.path.isdir(SSD_ROOT)
-on_ssd = s["path"].startswith(SSD_ROOT + "/")
+ssd_tag = next((t["id"] for t in api("GET", "/tag") if t["label"] == "ssd"), None)
+ssd_ok = bool(SSD_ROOT) and ssd_tag is not None and os.path.isdir(SSD_ROOT)      # second drive plugged in
+on_ssd = bool(SSD_ROOT) and s["path"].startswith(SSD_ROOT + "/")
 if not on_ssd and ssd_ok and effective_free(INTERNAL_ROOT) < INTERNAL_RESERVE and effective_free(SSD_ROOT) > SSD_RESERVE:
     old = s["path"]
     s["path"] = f"{SSD_ROOT}/{os.path.basename(old)}"
@@ -64,7 +69,7 @@ if not on_ssd and ssd_ok and effective_free(INTERNAL_ROOT) < INTERNAL_RESERVE an
     except OSError:
         pass
 tags = set(s.get("tags") or [])
-new_tags = tags | {ssd_tag} if on_ssd else tags - {ssd_tag}
+new_tags = (tags | {ssd_tag} if on_ssd else tags - {ssd_tag}) if ssd_tag is not None else tags
 if new_tags != tags:
     s["tags"] = sorted(new_tags)
     changed = True

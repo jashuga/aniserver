@@ -16,8 +16,9 @@ HOME = Path.home()
 spec = importlib.util.spec_from_file_location("htpc", Path(__file__).resolve().parent.parent / "website/app.py")
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)                     # reuses the website's config + link signing (server doesn't start)
-TOPIC = (HOME / ".config/htpc-ntfy-topic").read_text().strip()
-PUBLIC = f"https://{app.CONF['public_host']}"
+TOPIC_FILE = HOME / ".config/htpc-ntfy-topic"
+TOPIC = TOPIC_FILE.read_text().strip() if TOPIC_FILE.exists() else ""   # no topic: no phone pushes
+PUBLIC = f"https://{app.CONF['public_host']}" if app.CONF.get("public_host") else f"http://localhost:{app.CONF.get('port', 5050)}"
 LOG = HOME / ".local/share/htpc-web/notify.log"
 env = os.environ
 
@@ -29,13 +30,14 @@ def log(msg):
 
 
 def push(title, message, path=None, tags=("tv",), priority=3):
+    if not TOPIC:
+        return
     body = {"topic": TOPIC, "title": title, "message": message, "tags": list(tags), "priority": priority}
     if path:
         q = app.signed_qs(path)
         body["click"] = f"{PUBLIC}/go?{q}"
-        body["actions"] = [{"action": "view", "label": "▶ Watch", "url": f"{PUBLIC}/go?{q}"},
-                           {"action": "http", "label": "📺 Play on TV", "url": f"{PUBLIC}/api/tvplay?{q}",
-                            "method": "POST", "clear": True}]
+        body["actions"] = [{"action": "view", "label": "▶ Watch", "url": f"{PUBLIC}/go?{q}"}] + (
+            [{"action": "http", "label": "📺 Play on TV", "url": f"{PUBLIC}/api/tvplay?{q}", "method": "POST", "clear": True}] if app.TV else [])
     req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=20).read()

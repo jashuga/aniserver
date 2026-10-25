@@ -21,14 +21,16 @@ function card(i) {
   const poster = i.poster ? '<img src="' + esc(i.poster) + '" alt="" loading="lazy">' : '<div class="ph">' + (i.kind === 'manga' ? '📖' : i.kind === 'movie' ? '🎬' : '📺') + '</div>';
   const title = i.link ? '<a href="' + esc(i.link) + '">' + esc(i.title) + '</a>' : esc(i.title);
   const watch = i.state === 'ready' && i.link ? '<a class="btn small" href="' + esc(i.link) + '">▶ Watch</a>'
-    : i.single && i.kind !== 'manga' && ['downloading', 'stalled', 'finding', 'queued', 'paused', 'checking'].includes(i.state)
+    : tvOn && i.single && i.kind !== 'manga' && ['downloading', 'stalled', 'finding', 'queued', 'paused', 'checking'].includes(i.state)
       ? '<button class="btn small tvnow" data-h="' + esc(i.id) + '"' + (tvnow[i.id] ? ' disabled>' + esc(tvnow[i.id]) : '>📺 Watch now on TV') + '</button>' : '';
   return '<div class="dlc s-' + i.state + '">' + poster + '<div class="dli"><div class="dlt"><span>' + title + '</span><span class="chip st">' + LABEL[i.state] + '</span></div>' +
     (i.sub ? '<div class="dls" title="' + esc(i.release) + '">' + esc(i.sub) + '</div>' : '') +
     (i.state === 'ready' || i.state === 'blocked' ? '' : '<div class="bar" role="progressbar" aria-valuenow="' + pct + '"><i style="width:' + pct + '%"></i></div>') +
     '<div class="dlm"><span>' + (i.state === 'ready' || i.state === 'importing' || i.state === 'blocked' ? '' : '<b>' + pct + '%</b> · ') + line + '</span>' + watch + '</div></div></div>';
 }
+let tvOn = true;        // is a TV (Kodi) set up on the server?
 function render(d) {
+  tvOn = d.tv !== false;
   const active = d.items.filter(i => !['ready', 'importing', 'blocked'].includes(i.state)), finishing = d.items.filter(i => i.state === 'importing'),
     blocked = d.items.filter(i => i.state === 'blocked'), ready = d.items.filter(i => i.state === 'ready');
   const sec = (t, list) => list.length ? '<h3 class="dlsec">' + t + '</h3>' + list.map(card).join('') : '';

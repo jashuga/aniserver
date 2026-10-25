@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from aniserver.config import CONF, PROFILES
+from aniserver.config import CONF, MANGA, PROFILES, TV
 from aniserver.anime import clean_description, title_of
 
 IMG_WIDTHS = (160, 240, 360, 480, 640, 960, 1280, 1920)
@@ -123,6 +123,7 @@ def is_public_host(host):
 
 NAV = (("home", "/", "Home"), ("anime", "/anime", "Browse"), ("shows", "/shows", "My Shows"), ("search", "/manga", "Manga"),
        ("follows", "/following", "Followed manga"), ("downloads", "/downloads", "Downloads"))
+NAV = tuple(n for n in NAV if MANGA or n[0] not in ("search", "follows"))      # manga is optional
 
 
 def page(body, active="", host="", title="aniserver", full=False, user=None):
@@ -376,4 +377,6 @@ def delete_button(card, title, round_btn=True):
 
 
 def tv_button(item_id, label="Play on the TV"):
+    if not TV:                                          # no Kodi set up: no TV buttons
+        return ""
     return f'<button class="round" data-tv="{item_id}" title="{esc(label)}" aria-label="{esc(label)}">{icon("tv")}</button>'

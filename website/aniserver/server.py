@@ -4,6 +4,7 @@ import calendar
 import gzip
 import hashlib
 import html
+import ipaddress
 import json
 import os
 import re
@@ -17,7 +18,7 @@ import urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from aniserver.config import CONF, JELLYFIN, OWNER, PROFILES, REMOTE_NAMES, STATIC
+from aniserver.config import CONF, HOME_NETWORKS, JELLYFIN, OWNER, PROFILES, REMOTE_NAMES, STATIC, TV
 from aniserver.services import POOL, _JF_CACHE, home_public_ip, jellyfin, jf_item, jf_maps, jf_uid, swr
 from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_COOKIE, change_jellyfin_password, change_website_password, check_password, cookie_flags, hash_password, note_login, record_fail, remote_token, remote_token_user, remote_users, save_remote_users, session_cookies, too_many_fails, totp_ok
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
@@ -51,7 +52,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def at_home(self):
         ip = self.client_ip()
-        return ip in ("127.0.0.1", "::1") or ip.startswith("10.0.0.") or ip == home_public_ip()
+        try:
+            if ip in ("127.0.0.1", "::1") or any(ipaddress.ip_address(ip) in n for n in HOME_NETWORKS):
+                return True
+        except ValueError:
+            return False
+        return ip == home_public_ip()
 
     def authed(self):
         """Everyone signs in with their own account (password + a code once per browser), at home and away."""
@@ -336,9 +342,9 @@ class Handler(BaseHTTPRequestHandler):
     def watch_buttons(self, path, label):
         q = urllib.parse.urlencode({"p": path})
         return (f'<a class="btn icon" href="/go?{html.escape(q)}" title="Play it here">▶ Watch</a>'
-                f'<form class="inline" method="post" action="/tv/play"><input type="hidden" name="p" value="{html.escape(path)}">'
-                f'<input type="hidden" name="label" value="{html.escape(label)}"><input type="hidden" name="back" value="/shows">'
-                f'<button class="ghost icon" title="Starts playing on the living-room TV (Kodi)">📺 Play on TV</button></form>')
+                + (f'<form class="inline" method="post" action="/tv/play"><input type="hidden" name="p" value="{html.escape(path)}">'
+                   f'<input type="hidden" name="label" value="{html.escape(label)}"><input type="hidden" name="back" value="/shows">'
+                   f'<button class="ghost icon" title="Starts playing on the living-room TV (Kodi)">📺 Play on TV</button></form>' if TV else ""))
 
     def shows_page(self, qs):
         try:
@@ -413,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
         return (f'{refresh}<a id="top"></a>{msg_html(qs)}<h2>My shows</h2>'
                 f'<div class="hub">{"".join(out) if out else empty}</div>'
                 f'<p class="hint">{"Updates automatically every 15 seconds while something is searching or downloading. " if busy else ""}'
-                f'▶ Watch plays it right here · 📺 Play on TV starts it on the TV.</p>')
+                f'▶ Watch plays it right here{" · 📺 Play on TV starts it on the TV" if TV else ""}.</p>')
 
     # --- streaming: home, title pages, player ---
     def account_page(self, qs):
@@ -754,7 +760,7 @@ title="{'Mark as unwatched' if seen else 'Mark as watched'}">{icon('check')}</bu
 <button class="ib" id="nextbtn" hidden>{icon("next")}</button>
 <button class="ib" id="ccbtn" title="Audio & subtitles (C)">{icon("cc")}</button>
 <button class="ib" id="setbtn" title="Quality & speed">{icon("gear")}</button>
-<button class="ib" id="tvbtn" title="Continue on the TV from here">{icon("tv")}</button>
+<button class="ib" id="tvbtn" title="Continue on the TV from here"{"" if TV else " hidden"}>{icon("tv")}</button>
 <button class="ib hide-sm" id="pip" title="Picture in picture" hidden>{icon("pip")}</button>
 <button class="ib" id="fs" title="Full screen (F)"></button></div></div>
 <div class="panel"></div>

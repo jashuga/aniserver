@@ -324,10 +324,11 @@ def match_movie_by_title(anilist_id):
 def movie_root():
     """Internal drive while it has room (after pending downloads), else the USB SSD (tagged 'ssd' so the
     download goes to the SSD too and hardlinks keep working)."""
-    if effective_free(MOVIE_ROOT_INTERNAL) >= INTERNAL_RESERVE or not Path(MOVIE_ROOT_SSD).is_dir():
+    if not MOVIE_ROOT_SSD or effective_free(MOVIE_ROOT_INTERNAL) >= INTERNAL_RESERVE or not Path(MOVIE_ROOT_SSD).is_dir():
         return MOVIE_ROOT_INTERNAL, []
     if effective_free(MOVIE_ROOT_SSD) > SSD_RESERVE:
-        return MOVIE_ROOT_SSD, [next(t["id"] for t in radarr("GET", "/tag") if t["label"] == "ssd")]
+        tag = next((t["id"] for t in radarr("GET", "/tag") if t["label"] == "ssd"), None)
+        return MOVIE_ROOT_SSD, [tag] if tag else []
     return MOVIE_ROOT_INTERNAL, []
 
 

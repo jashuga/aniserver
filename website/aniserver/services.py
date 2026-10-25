@@ -44,9 +44,15 @@ def qbit(path, data=None, timeout=30):
             return raw.decode()
 
 
+def arr_key(app):
+    """Sonarr/Radarr API key: config.json "sonarr_key"/"radarr_key", else read from the program's own config.xml."""
+    key = CONF.get(f"{app.lower()}_key")
+    return key or re.search(r"<ApiKey>(\w+)</ApiKey>", (Path.home() / f".config/{app}/config.xml").read_text()).group(1)
+
+
 def sonarr(method, path, body=None, timeout=60):
     offline_check("Sonarr")
-    key = re.search(r"<ApiKey>(\w+)</ApiKey>", (Path.home() / ".config/Sonarr/config.xml").read_text()).group(1)
+    key = arr_key("Sonarr")
     req = urllib.request.Request(SONARR + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"X-Api-Key": key, "Content-Type": "application/json"})
@@ -70,7 +76,7 @@ def graphql(query, variables=None):
 
 def radarr(method, path, body=None, timeout=60):
     offline_check("Radarr")
-    key = re.search(r"<ApiKey>(\w+)</ApiKey>", (Path.home() / ".config/Radarr/config.xml").read_text()).group(1)
+    key = arr_key("Radarr")
     req = urllib.request.Request(RADARR + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"X-Api-Key": key, "Content-Type": "application/json"})
@@ -117,7 +123,9 @@ def qbit_live():
 
 def kodi_rpc(method, params=None):
     offline_check("Kodi")
-    auth = base64.b64encode(f"kodi:{CONF['kodi_password']}".encode()).decode()
+    if not KODI:
+        raise RuntimeError("no Kodi set up (kodi_url)")
+    auth = base64.b64encode(f"kodi:{CONF.get('kodi_password', '')}".encode()).decode()
     req = urllib.request.Request(KODI, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}).encode(),
                                  headers={"Content-Type": "application/json", "Authorization": "Basic " + auth})
     with urllib.request.urlopen(req, timeout=15) as r:

@@ -7,12 +7,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from aniserver.config import CONF, RSS_FOLDER
+from aniserver.config import CONF, MANGA_FOLDER, RSS_FOLDER
 from aniserver.services import prowlarr, qbit
 
 # ---------- manga (Nyaa via Prowlarr -> qBittorrent -> Komga) ----------
 
-VOLUMES = Path.home() / "Media/Manga/Volumes"
+VOLUMES = MANGA_FOLDER
 RESULTS = {}  # guid -> release from recent searches (keeps Prowlarr download links server-side)
 
 

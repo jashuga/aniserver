@@ -97,7 +97,7 @@ def push(title, message):
     if DRY or not TOPIC:
         return
     body = {"topic": TOPIC, "title": title, "message": message, "tags": ["warning"], "priority": 3,
-            "click": f"https://{app.CONF['public_host']}/shows"}
+            **({"click": f"https://{app.CONF['public_host']}/shows"} if app.CONF.get("public_host") else {})}
     req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=20).read()
 
