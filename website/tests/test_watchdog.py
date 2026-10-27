@@ -268,6 +268,11 @@ class KodiLibrary(unittest.TestCase):
         calls, _ = self.run_check([self.in_kodi(9, "Apothecary", 0, 482073)], [], [self.show(3, "Apothecary", 2, 431162)], [], self.state, NOW)
         self.assertEqual(calls, [("VideoLibrary.RefreshTVShow", {"tvshowid": 9, "ignorenfo": False, "refreshepisodes": True})])
 
+    def test_a_new_movie_is_scanned_in_its_own_folder(self):
+        movie = {"id": 5, "title": "Encanto", "path": str(self.root / "Movies/Encanto (2021)"), "movieFile": {"path": str(self.root / "Movies/Encanto (2021)/e.mkv")}}
+        calls, _ = self.run_check([], [], [], [movie], self.state, NOW)
+        self.assertEqual(calls, [("VideoLibrary.Scan", {"directory": str(self.root / "Movies/Encanto (2021)") + "/", "showdialogs": False})])
+
     def test_movies_and_several_shows_behind_mean_one_full_scan(self):
         movie = {"id": 5, "title": "Encanto", "path": str(self.root / "Movies/Encanto (2021)"), "movieFile": {"path": str(self.root / "Movies/Encanto (2021)/e.mkv")}}
         calls, _ = self.run_check([], [], [self.show(1, "JoJo", 4, 79151)], [movie], self.state, NOW)

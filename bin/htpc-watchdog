@@ -310,7 +310,7 @@ def check_kodi(state, now):
     for m in app.radarr("GET", "/movie"):
         f = (m.get("movieFile") or {}).get("path")
         if f and not any(same_dir(x["file"], f) for x in movies):
-            behind.append((f"movie:{m['id']}", 1, str(Path(m["path"]).parent) + "/", m["title"]))
+            behind.append((f"movie:{m['id']}", 1, m["path"].rstrip("/") + "/", m["title"]))   # its own folder: Kodi may not scan movie subfolders
     seen = state.setdefault("kodi", {})
     for key in [k for k in seen if k not in {b[0] for b in behind}]:
         seen.pop(key)                                   # caught up

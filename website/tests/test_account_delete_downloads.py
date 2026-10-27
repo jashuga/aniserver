@@ -95,7 +95,7 @@ class FakeArr:
 
 class DeleteTitle(unittest.TestCase):
     def run_delete(self, key, sonarr, radarr, torrents):
-        qcalls, refreshed = [], []
+        qcalls, refreshed, scans = [], [], []
 
         def qbit(path, data=None, timeout=30):
             if path == "/torrents/info":
@@ -108,10 +108,14 @@ class DeleteTitle(unittest.TestCase):
             if method == "VideoLibrary.GetMovies":
                 return {"result": {"movies": [{"movieid": 7, "uniqueid": {"tmdb": "999"}, "file": "/movies/Film (2020)/f.mkv"},
                                               {"movieid": 8, "uniqueid": {"tmdb": "568124"}, "file": "/movies/Encanto (2021)/e.mkv"}]}}
+            if method == "XBMC.GetInfoBooleans":         # Sonarr's own rescan is running the first time we ask
+                scans.append(1)
+                return {"result": {"Library.IsScanningVideo": len(scans) == 1}}
             refreshed.append((method, params))
             return {"result": "OK"}
         with tempfile.TemporaryDirectory() as d, Patch(sonarr=sonarr, radarr=radarr, qbit=qbit, DELETE_LOG=Path(d) / "deleted.log",
-                                                        jellyfin=lambda *a, **k: refreshed.append("jellyfin"), kodi_rpc=kodi_rpc):
+                                                        jellyfin=lambda *a, **k: refreshed.append("jellyfin"), kodi_rpc=kodi_rpc,
+                                                        run_later=lambda job: job(), KODI_SETTLE=0):
             result = app.delete_title(key, "alice")
             log = (Path(d) / "deleted.log").read_text()
         return result, qcalls, refreshed, log
