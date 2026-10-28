@@ -16,7 +16,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from aniserver.config import CONF, JELLYFIN, TV_PROFILE
+from aniserver.config import CONF, JELLYFIN
 from aniserver.services import POOL, _JF_CACHE, is_anime, jellyfin, jf_item, jf_maps, jf_uid, qbit
 from aniserver.library import kodi_play, media_path, series_episodes
 from aniserver.pages import backdrop_of, ep_code, logo_of, thumb_of
@@ -331,11 +331,24 @@ def stop_transcode(dev, psid):
             pass
 
 
+def watch_later_file(path):
+    """mpv keeps the TV's resume point for a file in a watch-later file named after the MD5 of its path."""
+    return Path.home() / ".local/state/mpv/watch_later" / hashlib.md5(path.encode()).hexdigest().upper()
+
+
+def tv_resume_point(path):
+    """Where the TV itself last stopped this file (seconds), 0 if it hasn't."""
+    try:
+        m = re.search(r"^start=([\d.]+)", watch_later_file(path).read_text(), re.M)
+        return float(m.group(1)) if m else 0
+    except OSError:
+        return 0
+
+
 def mpv_resume_at(path, seconds):
-    """Make the TV (mpv) start at `seconds`: mpv resumes from its watch-later file, named after the MD5 of the path."""
-    d = Path.home() / ".local/state/mpv/watch_later"
-    d.mkdir(parents=True, exist_ok=True)
-    f = d / hashlib.md5(path.encode()).hexdigest().upper()
+    """Make the TV (mpv) start at `seconds` (overwrites the TV's own resume point for that file)."""
+    f = watch_later_file(path)
+    f.parent.mkdir(parents=True, exist_ok=True)
     if seconds and seconds > 5:
         f.write_text(f"start={seconds:.3f}\n")
     elif f.exists():
@@ -420,8 +433,7 @@ def _watch_now(h, save_path, f, user):
         _JF_CACHE["t"] = 0
         for lib_path, item in jf_maps()[0].items():
             try:
-                if (os.stat(lib_path).st_dev, os.stat(lib_path).st_ino) == ident:
-                    save_progress(user, item, pos, played)
+                if (os.stat(lib_path).st_dev, os.stat(lib_path).st_ino) == ident:    # TV history only (not the website's)
                     mpv_resume_at(lib_path, 0 if played else pos)
                     return
             except OSError:
@@ -430,33 +442,17 @@ def _watch_now(h, save_path, f, user):
 
 
 def tv_play_item(user, item_id, pos=None):
-    """Start a library item on the TV at `pos` seconds (default: where this person left off in Jellyfin)."""
+    """Start a library item on the TV. The TV keeps its own history: by default it resumes where the TV last stopped;
+    `pos` (Continue on TV from the website player) hands over the website's spot instead."""
     it = jf_item(jf_uid(user), item_id)
     real = media_path(it.get("Path"))
     if pos is None:
-        ud = it.get("UserData") or {}
-        pos = 0 if ud.get("Played") else (ud.get("PlaybackPositionTicks") or 0) / 1e7
-    mpv_resume_at(real, pos)
+        pos = tv_resume_point(real)
+    else:
+        mpv_resume_at(real, pos)
     kodi_play(real)
     name = f"{it.get('SeriesName')} {ep_code(it)}" if it.get("Type") == "Episode" else it.get("Name")
     return name, pos
-
-
-def mpv_progress(path, pos, dur):
-    """mpv on the TV stopped at `pos`: save it to Jellyfin like the website player does (played when near the end)."""
-    real = media_path(path)
-    paths, _ = jf_maps()
-    item = paths.get(real)
-    if not item:
-        _JF_CACHE["t"] = 0
-        item = jf_maps()[0].get(real)
-    if not item:
-        return False
-    played = dur > 0 and pos / dur >= 0.9
-    if pos < 30 and not played:
-        return False
-    save_progress(TV_PROFILE, item, pos, played)
-    return True
 
 
 def playinfo(user, item_id):

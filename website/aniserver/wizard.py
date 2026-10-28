@@ -185,7 +185,6 @@ def build_config(old, found, people, public_host="", watch_host=""):
             conf[k] = found[k]
     conf["manga"] = bool(found.get("prowlarr_key") and found.get("indexer_id"))
     conf["profiles"] = {u: [name, COLORS[n % len(COLORS)]] for n, (u, name) in enumerate(people)}
-    conf["tv_profile"] = people[0][0]
     if public_host:
         conf["public_host"] = public_host
     if watch_host:

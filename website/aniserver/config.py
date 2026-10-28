@@ -24,7 +24,6 @@ def _folders(key, default):
 PROFILES = {u: tuple(v) for u, v in (CONF.get("profiles") or {"me": ["Me", "#ff7a1a"]}).items()}
 OWNER = next(iter(PROFILES))
 REMOTE_NAMES = tuple(PROFILES)   # anyone here can get a login at /security; must match their Jellyfin user name
-TV_PROFILE = CONF.get("tv_profile", OWNER)      # whose Jellyfin progress the living-room TV updates
 
 # the other programs (base addresses; "kodi_url": "" switches the TV features off)
 SONARR = _url("sonarr_url", "http://localhost:8989") + "/api/v3"

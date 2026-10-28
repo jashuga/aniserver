@@ -25,7 +25,7 @@ from aniserver.anime import anime_add, anime_search, movie_add, title_of, trendi
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
 from aniserver.artwork import apply_anime_artwork, artwork_language, set_artwork_language
-from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, mpv_progress, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
+from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
@@ -203,13 +203,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self.send(f"Couldn't play on the TV: {e}", 500)
         f = self.form()
-        if self.path == "/api/mpv-progress":           # the TV's mpv (this machine only) reporting where it stopped
-            if self.public() or self.client_address[0] not in ("127.0.0.1", "::1"):
-                return self.send("Forbidden", 403)
-            try:
-                return self.send_json({"ok": True, "saved": mpv_progress(f.get("path", ""), float(f.get("pos") or 0), float(f.get("dur") or 0))})
-            except Exception as e:
-                return self.send_json({"ok": False, "msg": str(e)}, 500)
         if self.path == "/login":
             ip = self.client_ip()
             if too_many_fails(ip):
