@@ -55,9 +55,10 @@ def quality_rank(profile):
     return rank
 
 
-def batch_candidates(series, wanted, releases):
+def batch_candidates(series, wanted, releases, max_episode_gb=None):
     """[(release, seasons it covers)] for multi-episode releases of this show that hold every wanted episode of at least
-    one season, best first the way Sonarr ranks them: format score, then quality, then seeders."""
+    one season, best first the way Sonarr ranks them: quality (the profile's order), format score, then seeders.
+    max_episode_gb leaves out batches bigger than that per episode."""
     profile = sonarr("GET", f"/qualityprofile/{series['qualityProfileId']}")
     rank = quality_rank(profile)
 
@@ -75,8 +76,9 @@ def batch_candidates(series, wanted, releases):
             covers = sorted(n for n, want in wanted.items() if want <= ids)
             q = (((p.get("parsedEpisodeInfo") or {}).get("quality") or {}).get("quality") or {}).get("id")
             score = p.get("customFormatScore") or 0
-            if len(ids) > 1 and covers and q in rank and score >= profile.get("minFormatScore", 0):
-                out.append((score, rank[q], r.get("seeders") or 0, r, covers))
+            too_big = max_episode_gb and (r.get("size") or 0) > max_episode_gb * 1e9 * len(ids)
+            if len(ids) > 1 and covers and q in rank and score >= profile.get("minFormatScore", 0) and not too_big:
+                out.append((rank[q], score, r.get("seeders") or 0, r, covers))
     out.sort(key=lambda x: x[:3], reverse=True)
     return [(r, covers) for *_, r, covers in out]
 

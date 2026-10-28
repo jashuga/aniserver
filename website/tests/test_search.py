@@ -82,6 +82,16 @@ class BatchFirst(unittest.TestCase):
         self.assertEqual(sonarr.commands, [{"name": "SeasonSearch", "seriesId": 5, "seasonNumber": 1}])
         self.assertEqual(done["season_searches"], [1])
 
+    def test_better_quality_wins_over_format_score_like_in_sonarr_and_big_batches_can_be_left_out(self):
+        parses = {"Orb S01 WEB": parsed(SEASON1, quality=9, score=900), "Orb S01 BD": parsed(SEASON1, quality=7, score=200)}
+        releases = [release("Orb S01 WEB"), dict(release("Orb S01 BD"), size=60e9)]
+        sonarr = FakeSonarr(parses)
+        with Patch(sonarr=sonarr):
+            ranked = app.batch_candidates(sonarr("GET", "/series/5"), {1: {e["id"] for e in SEASON1}}, releases)
+            capped = app.batch_candidates(sonarr("GET", "/series/5"), {1: {e["id"] for e in SEASON1}}, releases, max_episode_gb=1.5)
+        self.assertEqual([r["title"] for r, _ in ranked], ["Orb S01 BD", "Orb S01 WEB"])
+        self.assertEqual([r["title"] for r, _ in capped], ["Orb S01 WEB"])            # 60 GB / 12 episodes is over 1.5
+
     def test_one_multi_season_batch_covers_both_seasons(self):
         parses = {"[Judas] Orb (Seasons 1-2) [Batch]": parsed(SEASON1 + SEASON2)}
         sonarr = FakeSonarr(parses)
