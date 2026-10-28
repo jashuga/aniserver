@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from helpers import ROOT       # also keeps the tests away from the real services
+from helpers import ROOT, Patch       # also keeps the tests away from the real services
 
 loader = importlib.machinery.SourceFileLoader("watchdog", str(ROOT.parent / "bin/htpc-watchdog"))
 spec = importlib.util.spec_from_loader("watchdog", loader)
@@ -47,7 +47,8 @@ class Watchdog(unittest.TestCase):
         wd.app.follow_new_episodes = lambda sid: fake.followed.append(sid)
         wd.push = lambda title, msg: fake.pushes.append(title)
         try:
-            wd.check_shows(state, NOW)
+            with Patch(sonarr=fake.sonarr):                 # the search module talks to Sonarr directly
+                wd.check_shows(state, NOW)
         finally:
             wd.app.sonarr, wd.app.follow_new_episodes, wd.push, wd.DRY, wd.log = saved
 
@@ -199,9 +200,10 @@ class NewlyAddedOldShow(unittest.TestCase):
         wd.app.sonarr, wd.DRY, wd.log = fake.sonarr, False, lambda msg: None
         wd.push = lambda title, msg: fake.pushes.append((title, msg))
         try:
-            wd.check_shows(state, NOW + 7 * HOUR)
-            self.assertEqual(len(fake.commands), 1)                                   # 6 hours after adding: search again
-            wd.check_shows(state, NOW + 50 * HOUR)
+            with Patch(sonarr=fake.sonarr):
+                wd.check_shows(state, NOW + 7 * HOUR)
+                self.assertEqual(len(fake.commands), 1)                               # 6 hours after adding: search again
+                wd.check_shows(state, NOW + 50 * HOUR)
         finally:
             wd.app.sonarr, wd.app.follow_new_episodes, wd.push, wd.DRY, wd.log = saved
         self.assertEqual(len(fake.pushes), 1)

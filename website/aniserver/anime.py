@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from aniserver.config import INTERNAL_ROOT, MOVIE_ROOT_INTERNAL, MOVIE_ROOT_SSD, UA
+from aniserver.search import search_later
 from aniserver.services import graphql, qbit, radarr, sonarr, swr
 
 MAPPING_URL = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json"
@@ -391,7 +392,7 @@ def monitor_entry(series_id, media, season_hint=None):
     now = time.time()
     aired = [e["id"] for e in picked if not e.get("hasFile") and air_time(e) is not None and air_time(e) <= now]
     if aired:
-        sonarr("POST", "/command", {"name": "EpisodeSearch", "episodeIds": aired})
+        search_later(series_id, aired)                  # batches first (aniserver/search.py)
     return describe_episodes(picked), len(aired)
 
 
@@ -439,8 +440,10 @@ def anime_add(tvdb_id, anilist_id, season, mode):
         x["monitored"] = mode != "season" and x["seasonNumber"] > 0
     monitor = {"season": "none", "all": "all", "future": "future"}[mode]
     s.update(qualityProfileId=profile, seriesType="anime", rootFolderPath=INTERNAL_ROOT, monitored=True,
-             seasonFolder=True, addOptions={"monitor": monitor, "searchForMissingEpisodes": mode == "all"})
+             seasonFolder=True, addOptions={"monitor": monitor, "searchForMissingEpisodes": False})
     added = sonarr("POST", "/series", s)
+    if mode == "all":
+        search_later(added["id"])                       # batches first, instead of Sonarr's episode-by-episode search
     if mode == "season":
         return added["title"], "Added " + entry_result(added["id"], media, season)
     if mode == "future":

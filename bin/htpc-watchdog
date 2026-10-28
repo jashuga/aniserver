@@ -133,14 +133,9 @@ def check_shows(state, now):
                    and app.air_time(e) is not None and wanted_for(e) > 6 * HOUR]
         due = [e for e in missing if now - state["searched"].get(str(e["id"]), 0) > 12 * HOUR]
         if due:
-            seasons = sorted({e["seasonNumber"] for e in due})
             log(f"{s['title']}: searching again for {', '.join(code(e) for e in due[:12])}{' …' if len(due) > 12 else ''}")
-            if not DRY:
-                if len(due) <= 8:
-                    app.sonarr("POST", "/command", {"name": "EpisodeSearch", "episodeIds": [e["id"] for e in due]})
-                else:      # a big backlog: season searches find season packs
-                    for n in seasons[:3]:
-                        app.sonarr("POST", "/command", {"name": "SeasonSearch", "seriesId": s["id"], "seasonNumber": n})
+            if not DRY:                                 # batches first for big backlogs, Sonarr's own search for the rest
+                app.search_episodes(s["id"], [e["id"] for e in due], log=log)
             for e in due:
                 state["searched"][str(e["id"])] = now
         overdue = [e for e in missing if wanted_for(e) > 48 * HOUR and f"ep:{e['id']}" not in state["alerted"]]

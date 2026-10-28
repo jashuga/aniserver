@@ -146,11 +146,12 @@ class FakeSonarr:
 
 class MonitorEntry(unittest.TestCase):
     def setUp(self):
-        self._sonarr, self._time = app.sonarr, app.time.time
+        self._sonarr, self._time, self._later = app.sonarr, app.time.time, app.search_later
         app.time.time = lambda: calendar.timegm((2026, 10, 3, 12, 0, 0))     # "today": S6E3 aired yesterday
+        everywhere(search_later=lambda sid, ids=None: app.search_episodes(sid, ids))   # search right away, not in a thread
 
     def tearDown(self):
-        everywhere(sonarr=self._sonarr)
+        everywhere(sonarr=self._sonarr, search_later=self._later)
         app.time.time = self._time
 
     def test_adding_the_2nd_stage_monitors_exactly_its_episodes_and_searches_the_aired_ones(self):

@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if __name__ == "__main__" and sys.argv[1:2] == ["setup"]:    # first-time setup: works before config.json exists
     from aniserver.wizard import main as setup
     raise SystemExit(setup())
-for _name in ("config", "services", "auth", "anime", "manga", "library", "streaming", "pages", "artwork", "server"):
+for _name in ("config", "services", "auth", "search", "anime", "manga", "library", "streaming", "pages", "artwork", "server"):
     globals().update({k: v for k, v in vars(importlib.import_module(f"aniserver.{_name}")).items() if not k.startswith("__")})
 
 if __name__ == "__main__":
