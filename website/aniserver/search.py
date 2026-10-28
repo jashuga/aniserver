@@ -14,6 +14,7 @@ from aniserver.services import prowlarr, sonarr
 
 BATCH_MIN = 3            # a season with at least this many episodes to fetch tries a batch first
 MAX_PUSHES = 4           # batches offered to Sonarr per season before falling back to its own search
+GRAB_WAIT = 20           # seconds for an accepted batch to show up in Sonarr's download queue
 ANIME_CATEGORY = 5070
 
 
@@ -97,6 +98,20 @@ def push(release, indexer_name, tvdb_id=None):
     return bool(decision.get("approved")), [str(x) for x in decision.get("rejections") or []]
 
 
+def queued(series_id):
+    return {x.get("downloadId") for x in sonarr("GET", f"/queue?pageSize=1000&seriesIds={series_id}")["records"]}
+
+
+def started(series_id, before):
+    """Sonarr can accept a release and still fail to download it (the link, the indexer): check it really queued."""
+    deadline = time.time() + GRAB_WAIT
+    while not queued(series_id) - before:
+        if time.time() >= deadline:
+            return False
+        time.sleep(2)
+    return True
+
+
 def grab_batches(series, wanted, done, log):
     """Push the best batches until every wanted season is covered. Returns the seasons now downloading as batches."""
     indexers = {i["name"].removesuffix(" (Prowlarr)"): i["name"] for i in sonarr("GET", "/indexer")
@@ -108,7 +123,10 @@ def grab_batches(series, wanted, done, log):
         if not left or all(tries[n] >= MAX_PUSHES for n in left):
             continue
         tries.update(left)
+        before = queued(series["id"])
         ok, why = push(r, indexers[r["indexer"]], series.get("tvdbId"))
+        if ok and not started(series["id"], before):
+            ok, why = False, ["accepted, but the download didn't start (see Sonarr's log)"]
         if ok:
             covered |= set(seasons)
             done["batches"].append(r["title"])

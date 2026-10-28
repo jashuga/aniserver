@@ -167,6 +167,7 @@ def check_movies(state, now):
 
 GRACE = 20 * 60          # how long a stuck import gets to sort itself out before the watchdog steps in
 GRAB_MISMATCH = "was not found in the grabbed release"
+MATCHED_BY_ID = "matched to series by ID"     # batches the website pushed with their TVDB id (aniserver/search.py)
 
 
 def used_download(api, download_id):
@@ -178,11 +179,13 @@ def used_download(api, download_id):
     return any(r.get("eventType") == "downloadFolderImported" for r in (h.get("records") if isinstance(h, dict) else h) or [])
 
 
-def import_batch(recs):
+def import_batch(recs, by_id=False):
     """Sonarr misread a batch's name when it grabbed it (e.g. Erai-raws "S01 - 01 ~ 64" taken as episode 1) and now
     refuses the other files. Import them anyway, but only if Sonarr reads every file as one of this download's own
     regular episodes, no two files as the same episode, and nothing else is wrong with them. Returns the number of files
-    imported; 0 means it isn't safe (e.g. Brotherhood: TVDB's absolute numbers count specials) and a person must look."""
+    imported; 0 means it isn't safe (e.g. Brotherhood: TVDB's absolute numbers count specials) and a person must look.
+    by_id: Sonarr only knew the show from the TVDB id it was sent with, so it won't import by itself; files that aren't
+    one of its episodes (creditless openings, extras) are left out instead of stopping the import."""
     r0 = recs[0]
     wanted = {r.get("episodeId") for r in recs}
     t = next((t for t in app.qbit("/torrents/info") if t["hash"].upper() == r0["downloadId"].upper()), None)
@@ -197,6 +200,8 @@ def import_batch(recs):
             continue
         eps = c.get("episodes") or []
         ids = {e["id"] for e in eps}
+        if by_id and not eps:
+            continue
         if (not eps or (c.get("series") or {}).get("id") != r0.get("seriesId") or any(e["seasonNumber"] == 0 for e in eps)
                 or not ids <= wanted or ids & seen or any(GRAB_MISMATCH not in x for x in reasons)):
             return 0
@@ -246,10 +251,12 @@ def check_stuck_imports(state, now):
                     api("DELETE", "/queue/bulk?removeFromClient=true&blocklist=true&skipRedownload=true", ids)
             first.pop(key)
             continue
-        if arr == "Sonarr" and any(GRAB_MISMATCH in m for m in msgs):
-            n = import_batch(recs)
+        by_id = any(MATCHED_BY_ID in m for m in msgs)
+        if arr == "Sonarr" and (by_id or any(GRAB_MISMATCH in m for m in msgs)):
+            n = import_batch(recs, by_id)
             if n:
-                log(f"{title}: imported {n} files Sonarr had refused after misreading the batch's name ({r0.get('title', '')[:90]})")
+                why_refused = "it only knew the show by its TVDB id" if by_id else "misreading the batch's name"
+                log(f"{title}: imported {n} files Sonarr had refused after {why_refused} ({r0.get('title', '')[:90]})")
                 continue                         # next run: everything is in the library, so it stops being tracked
         if f"stuck:{key}" not in state["alerted"]:
             state["alerted"][f"stuck:{key}"] = now

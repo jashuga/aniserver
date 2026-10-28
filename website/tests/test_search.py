@@ -19,8 +19,8 @@ def release(title, seeders=20, indexer="Nyaa.si"):
 
 
 class FakeSonarr:
-    def __init__(self, parses, accept=lambda title: True):
-        self.parses, self.accept, self.commands, self.pushed = parses, accept, [], []
+    def __init__(self, parses, accept=lambda title: True, starts=lambda title: True):
+        self.parses, self.accept, self.starts, self.commands, self.pushed, self.queue = parses, accept, starts, [], [], []
 
     def __call__(self, method, path, body=None, timeout=60):
         if path == "/episode?seriesId=5":
@@ -29,6 +29,8 @@ class FakeSonarr:
             return {"id": 5, "title": "Orb", "tvdbId": 421583, "qualityProfileId": 7, "alternateTitles": [{"title": "Chi. Chikyuu no Undou ni Tsuite"}]}
         if path == "/qualityprofile/7":
             return PROFILE
+        if path.startswith("/queue?"):
+            return {"records": [{"downloadId": t} for t in self.queue]}
         if path == "/indexer":
             return [{"name": "Nyaa.si (Prowlarr)"}, {"name": "AnimeTosho.xyz (Prowlarr)"}]
         if path.startswith("/parse?title="):
@@ -37,6 +39,8 @@ class FakeSonarr:
             self.pushed.append((body["title"], body["indexer"]))
             self.tvdb = body.get("tvdbId")
             ok = self.accept(body["title"])
+            if ok and self.starts(body["title"]):
+                self.queue.append(body["title"])
             return [{"approved": ok, "rejections": [] if ok else ["Existing file meets cutoff"]}]
         if method == "POST" and path == "/command":
             self.commands.append(body)
@@ -58,7 +62,7 @@ class BatchFirst(unittest.TestCase):
                 raise OSError("Prowlarr isn't answering")
             queries.append(urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)["query"][0])
             return releases
-        with Patch(sonarr=sonarr, prowlarr=prowlarr):
+        with Patch(sonarr=sonarr, prowlarr=prowlarr, GRAB_WAIT=0):
             done = app.search_episodes(5, ids)
         return done, queries
 
@@ -93,6 +97,14 @@ class BatchFirst(unittest.TestCase):
             capped = app.batch_candidates(sonarr("GET", "/series/5"), {1: {e["id"] for e in SEASON1}}, releases, max_episode_gb=1.5)
         self.assertEqual([r["title"] for r, _ in ranked], ["Orb S01 BD", "Orb S01 WEB"])
         self.assertEqual([r["title"] for r, _ in capped], ["Orb S01 WEB"])            # 60 GB / 12 episodes is over 1.5
+
+    def test_an_accepted_batch_that_never_starts_downloading_falls_through_to_the_next(self):
+        # 2026-10-28: Sonarr approved pushes whose link it then couldn't use, and nothing downloaded
+        parses = {"Orb S01 A": parsed(SEASON1, score=900), "Orb S01 B": parsed(SEASON1, score=800)}
+        sonarr = FakeSonarr(parses, starts=lambda title: title != "Orb S01 A")
+        done, _ = self.run_search(sonarr, [release(t) for t in parses], [e["id"] for e in SEASON1])
+        self.assertEqual([t for t, _ in sonarr.pushed], ["Orb S01 A", "Orb S01 B"])
+        self.assertEqual(done["batches"], ["Orb S01 B"])
 
     def test_one_multi_season_batch_covers_both_seasons(self):
         parses = {"[Judas] Orb (Seasons 1-2) [Batch]": parsed(SEASON1 + SEASON2)}

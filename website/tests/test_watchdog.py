@@ -176,6 +176,16 @@ class StuckImports(unittest.TestCase):
         self.assertEqual([(f["path"].rsplit("/", 1)[1], f["episodeIds"]) for f in body["files"]], [("Show - 02.mkv", [102]), ("Show - 03.mkv", [103])])
         self.assertEqual(pushes, [])
 
+    def test_batch_matched_by_tvdb_id_is_imported_without_its_extras(self):
+        # Fate/Apocrypha, 2026-10-28: pushed with its TVDB id because Sonarr couldn't place "[AC] Fate Apocrypha v1"
+        q = self.queue("batch", [101, 102], False, "Found matching series via grab history, but release was matched to series by ID. "
+                                                    "Automatic import is not possible.")
+        extra = dict(self.file(9, reason="Invalid season or episode"), episodes=[], path="/dl/Show batch/NCOP.mkv")
+        found = [self.file(1, reason=None), self.file(2, reason=None), extra]
+        calls, pushes = self.run_check(q, [], {"searched": {}, "alerted": {}, "stuck": {"Sonarr:batch": NOW - HOUR}}, NOW, found=found)
+        self.assertEqual([(f["path"].rsplit("/", 1)[1], f["episodeIds"]) for f in calls[0][2]["files"]], [("Show - 01.mkv", [101]), ("Show - 02.mkv", [102])])
+        self.assertEqual(pushes, [])
+
     def test_batch_that_sonarr_maps_oddly_is_left_alone_and_reported_once(self):
         # Brotherhood: TVDB's absolute numbers count specials, so file 21 reads as a special and 22 as episode 21
         q = self.queue("fmab", [101, 102, 103, 900], False, self.MISREAD)
