@@ -101,6 +101,12 @@ class DeleteTitle(unittest.TestCase):
             if path == "/torrents/info":
                 return [{"hash": h} for h in torrents]
             qcalls.append((path, data))
+        def jellyfin(path, method="GET", body=None):
+            if path.startswith("/Items?"):                # Jellyfin still lists the deleted show (its files are gone) and another
+                return {"Items": [{"Id": "gone", "Path": "/media/Show A"}, {"Id": "other", "Path": str(Path(__file__).parent)}]}
+            refreshed.append(("jellyfin", method, path))
+            return {}
+
         def kodi_rpc(method, params=None):
             if method == "VideoLibrary.GetTVShows":       # what the TV lists: the deleted show and another one
                 return {"result": {"tvshows": [{"tvshowid": 3, "uniqueid": {"tvdb": "111"}, "file": "/media/Show A/"},
@@ -114,7 +120,7 @@ class DeleteTitle(unittest.TestCase):
             refreshed.append((method, params))
             return {"result": "OK"}
         with tempfile.TemporaryDirectory() as d, Patch(sonarr=sonarr, radarr=radarr, qbit=qbit, DELETE_LOG=Path(d) / "deleted.log",
-                                                        jellyfin=lambda *a, **k: refreshed.append("jellyfin"), kodi_rpc=kodi_rpc,
+                                                        jellyfin=jellyfin, kodi_rpc=kodi_rpc,
                                                         run_later=lambda job: job(), KODI_SETTLE=0):
             result = app.delete_title(key, "alice")
             log = (Path(d) / "deleted.log").read_text()
@@ -134,7 +140,8 @@ class DeleteTitle(unittest.TestCase):
         self.assertEqual(len(qcalls), 1)
         self.assertEqual(sorted(qcalls[0][1]["hashes"].split("|")), ["aaa", "ccc"])       # seeding copies too (BBB is already gone)
         self.assertEqual(qcalls[0][1]["deleteFiles"], "true")
-        self.assertEqual(refreshed, ["jellyfin", ("VideoLibrary.RemoveTVShow", {"tvshowid": 3}),          # off the TV right away
+        self.assertEqual(refreshed, [("jellyfin", "DELETE", "/Items/gone"), ("jellyfin", "POST", "/Library/Refresh"),
+                                     ("VideoLibrary.RemoveTVShow", {"tvshowid": 3}),                     # off the TV too
                                      ("VideoLibrary.Clean", {"showdialogs": False})])
         self.assertIn("alice deleted Show A", log)
 

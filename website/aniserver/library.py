@@ -188,6 +188,23 @@ def wait_for_kodi_scan(timeout=60):
         time.sleep(1)
 
 
+def wait_gone(folder, timeout=120):
+    """Sonarr/Radarr finish moving a deleted title's files a moment after they answer."""
+    end = time.time() + timeout
+    while os.path.exists(folder) and time.time() < end:
+        time.sleep(2)
+
+
+def remove_from_jellyfin(folder):
+    """Take a deleted title out of Jellyfin. A library scan doesn't reliably drop it (How to Lose a Guy stayed in
+    Continue watching, 2026-10-28); only entries whose files are really gone are removed."""
+    inside = os.path.realpath(folder) + "/"
+    for it in jellyfin("/Items?Recursive=true&IncludeItemTypes=Series,Movie&Fields=Path")["Items"]:
+        p = it.get("Path") or ""
+        if (os.path.realpath(p) + "/").startswith(inside) and not os.path.exists(p):
+            jellyfin(f"/Items/{it['Id']}", "DELETE")
+
+
 def remove_from_kodi(key, folder):
     """Take a deleted show/movie off the TV. Kodi's own library clean only drops entries whose files it can check, so a
     show emptied by a delete stayed behind as an empty tile (Attack on Titan, 2026-10-11)."""
@@ -234,10 +251,13 @@ def delete_title(key, who):
                 step()
             except Exception:
                 pass
-    refresh(lambda: jellyfin("/Library/Refresh", "POST"))
-    if TV:                                              # the TV in the background: it waits for Kodi's own rescan
-        run_later(lambda: refresh(wait_for_kodi_scan, lambda: remove_from_kodi(key, folder),
-                                  lambda: kodi_rpc("VideoLibrary.Clean", {"showdialogs": False})))
+    def after():                                        # in the background, once the files are really gone
+        refresh(lambda: wait_gone(folder), lambda: remove_from_jellyfin(folder), lambda: jellyfin("/Library/Refresh", "POST"),
+                lambda: _JF_CACHE.update(t=0))
+        if TV:                                          # the TV: wait for the rescan Sonarr/Radarr start in Kodi
+            refresh(wait_for_kodi_scan, lambda: remove_from_kodi(key, folder),
+                    lambda: kodi_rpc("VideoLibrary.Clean", {"showdialogs": False}))
+    run_later(after)
     for k in ("dlcards", "dlnames", "libitems"):
         _SWR.pop(k, None)
     _JF_CACHE["t"] = 0
