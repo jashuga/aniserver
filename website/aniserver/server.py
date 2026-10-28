@@ -24,9 +24,9 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
-from aniserver.artwork import apply_anime_artwork, artwork_language, set_artwork_language
+from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
-from aniserver.pages import ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
+from aniserver.pages import VIEWER, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
 
@@ -66,6 +66,8 @@ class Handler(BaseHTTPRequestHandler):
         user = remote_token_user(c[REMOTE_COOKIE].value) if REMOTE_COOKIE in c else None
         self.remote_user = user
         self.user = user or OWNER
+        pick = user_artwork(user) if user else ""
+        VIEWER.art = pick if pick and pick != artwork_language() else ""     # their own artwork pick, if not the shared one
         if not user:
             return False
         # sliding sign-in: every visit pushes the expiry a year out again, so each browser signs in only once
@@ -230,11 +232,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/"):
             return self.api_post(f)
         if self.path == "/account/artwork":
-            if self.user != OWNER or f.get("lang") not in ("japanese", "english"):
+            if f.get("lang") not in ("japanese", "english"):
                 return self.redirect("/account")
-            set_artwork_language(f["lang"])
+            shared = set_user_artwork(self.user, f["lang"])
             threading.Thread(target=apply_anime_artwork, kwargs={"log": lambda msg: None}, daemon=True).start()
-            return self.redirect("/account?ok=" + urllib.parse.quote(f"Anime artwork set to {f['lang'].title()}. It updates over the next minute."))
+            where = "here, on the TV and in the Jellyfin apps. It updates over the next minute" if shared else "for you on this website"
+            return self.redirect("/account?ok=" + urllib.parse.quote(f"Anime artwork set to {f['lang'].title()} {where}."))
         if self.path in ("/account/password", "/account/jellyfin"):
             return self.account_post(f)
         if self.path.startswith("/security/"):
@@ -305,6 +308,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send("Not found", 404)
         want = (qs.get("w") or ["480"])[0]
         w = next((x for x in IMG_WIDTHS if x >= int(want)), IMG_WIDTHS[-1]) if want.isdigit() else 480
+        art = (qs.get("l") or [""])[0]
+        own = cached_image(m.group(1), m.group(2), art) if art and art != artwork_language() else None
+        if own:                               # this viewer picked the other language: the local copy of that artwork
+            data = own.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", {".png": "image/png", ".webp": "image/webp"}.get(own.suffix, "image/jpeg"))
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=604800")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         key = (m.group(1), m.group(2), w, (qs.get("t") or [""])[0])
         with _IMG_LOCK:                       # recently used artwork is kept in memory (shared by every device)
             hit = _IMG_CACHE.get(key)
@@ -439,11 +453,11 @@ class Handler(BaseHTTPRequestHandler):
 <p class="hint">Apps that are already signed in stay signed in.</p></div>{self.artwork_card()}</div>"""
 
     def artwork_card(self):
-        if self.user != OWNER:
-            return ""
-        cur = artwork_language()
+        cur = user_artwork(self.user)
+        where = ("On this site, the Jellyfin apps and the TV." if self.user == OWNER else
+                 f"On this site, just for you. The TV and the Jellyfin apps use {esc(PROFILES.get(OWNER, (OWNER.title(),))[0])}'s choice.")
         opt = lambda v, label: f'<label style="margin-right:18px"><input type="radio" name="lang" value="{v}"{" checked" if cur == v else ""}> {label}</label>'
-        return f"""<div class="card acard"><h3>Anime artwork</h3><p class="muted">Posters and title logos for anime, on this site, the Jellyfin apps and the TV.</p>
+        return f"""<div class="card acard"><h3>Anime artwork</h3><p class="muted">Posters and title logos for anime. {where}</p>
 <form method="post" action="/account/artwork" class="pwform"><div style="margin:6px 0 12px">{opt("japanese", "Japanese")}{opt("english", "English")}</div>
 <button>Save</button></form></div>"""
 

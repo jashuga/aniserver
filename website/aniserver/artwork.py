@@ -1,6 +1,6 @@
-"""Anime artwork language: "japanese" (official key visual + Japanese title logo) or "english", set on the Account page
-(config.json "anime_artwork"). Applied to Jellyfin (the website and the apps) and Kodi (the TV) for every title whose
-original language is Japanese; switching back and forth re-applies it."""
+"""Anime artwork language: "japanese" (official key visual + Japanese title logo) or "english". Everyone picks their
+own on the Account page for this website; the owner's pick is also what Jellyfin (its apps) and Kodi (the TV) show,
+since those are shared. Applies to every title whose original language is Japanese; switching re-applies it."""
 import base64
 import json
 import time
@@ -8,14 +8,17 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from aniserver.config import CONF, CONFIG_FILE, JELLYFIN, UA
+from aniserver.config import CONF, CONFIG_FILE, JELLYFIN, OWNER, UA
 from aniserver.services import graphql, jellyfin, kodi_rpc, radarr, sonarr
 
-ARTWORK_STATE = Path.home() / ".cache/htpc/artwork.json"      # title -> the artwork applied (and in which language)
+ARTWORK_STATE = Path.home() / ".cache/htpc/artwork.json"      # title -> both languages' images, the one Jellyfin/Kodi show
+ARTWORK_CACHE = Path.home() / ".cache/htpc/artwork"           # <jellyfin id>-<kind>-<ja|en>.<ext>, for people whose pick differs
+ARTWORK_PREFS = CONFIG_FILE.parent / "artwork-prefs.json"      # person -> japanese|english (this website)
 ARTWORK_LANGS = {"japanese": "ja", "english": "en"}
 
 
 def artwork_language():
+    """The shared pick (Jellyfin apps, the TV): the owner's."""
     value = CONF.get("anime_artwork", "japanese")
     return value if value in ARTWORK_LANGS else "japanese"
 
@@ -29,6 +32,57 @@ def set_artwork_language(value):
     tmp.write_text(json.dumps(data, indent=2) + "\n")
     tmp.chmod(0o600)
     tmp.replace(CONFIG_FILE)
+
+
+def _prefs():
+    try:
+        return json.loads(ARTWORK_PREFS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def user_artwork(user):
+    """This person's pick on the website (the shared one until they choose)."""
+    if user == OWNER:
+        return artwork_language()
+    pick = _prefs().get(user)
+    return pick if pick in ARTWORK_LANGS else artwork_language()
+
+
+def set_user_artwork(user, value):
+    """Save someone's pick. The owner's is also the shared one: returns True when Jellyfin/the TV need re-applying."""
+    if value not in ARTWORK_LANGS:
+        raise ValueError(value)
+    if user == OWNER:
+        set_artwork_language(value)
+        return True
+    prefs = _prefs()
+    prefs[user] = value
+    tmp = ARTWORK_PREFS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(prefs, indent=2) + "\n")
+    tmp.replace(ARTWORK_PREFS)
+    return False
+
+
+def cached_image(item_id, kind, value):
+    """The local copy of a title's poster/logo in `value`'s language, if there is one."""
+    code = ARTWORK_LANGS.get(value)
+    return next(iter(ARTWORK_CACHE.glob(f"{item_id}-{kind}-{code}.*")), None) if code else None
+
+
+def sized(url, kind):
+    """TMDB serves smaller copies: cards don't need the 2000x3000 original."""
+    return url.replace("/t/p/original/", "/t/p/w780/" if kind == "Primary" else "/t/p/w500/")
+
+
+def cache_image(item_id, kind, code, url):
+    ext = Path(urllib.parse.urlsplit(url).path).suffix.lower()
+    ext = ext if ext in (".jpg", ".jpeg", ".png", ".webp") else ".jpg"
+    data = urllib.request.urlopen(urllib.request.Request(sized(url, kind), headers={"User-Agent": UA}), timeout=30).read()
+    ARTWORK_CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = ARTWORK_CACHE / f".{item_id}-{kind}-{code}{ext}"
+    tmp.write_bytes(data)
+    tmp.replace(ARTWORK_CACHE / f"{item_id}-{kind}-{code}{ext}")
 
 
 def pick_image(item, kind, lang, title):
@@ -57,7 +111,8 @@ def set_image(item_id, kind, url, provider):
 
 
 def apply_anime_artwork(dry=False, log=print):
-    """Give every Japanese-original show/movie the poster and title logo in the chosen language, in Jellyfin and Kodi."""
+    """Look up every Japanese-original show/movie's poster and title logo in both languages (kept locally for the
+    website), and give Jellyfin and Kodi the shared pick."""
     lang = ARTWORK_LANGS[artwork_language()]
     try:
         state = json.loads(ARTWORK_STATE.read_text())
@@ -68,16 +123,36 @@ def apply_anime_artwork(dry=False, log=print):
     for item in jellyfin("/Items?Recursive=true&IncludeItemTypes=Series,Movie&Fields=ProviderIds")["Items"]:
         ids = item.get("ProviderIds") or {}
         key = f"s{ids.get('Tvdb')}" if item["Type"] == "Series" else f"m{ids.get('Tmdb')}"
-        if key not in titles or (state.get(key) or {}).get("lang") == lang:
+        if key not in titles:
             continue
-        rec = {"lang": lang, "at": int(time.time())}
-        for kind in ("Primary", "Logo"):
-            url, provider = pick_image(item, kind, lang, titles[key])
-            if url:
+        rec = state.get(key) or {}
+        same_item = rec.get("jf") in (None, item["Id"])       # Jellyfin gives a re-added title a new id
+        if "urls" not in rec or not same_item:
+            urls = {}
+            for code in ARTWORK_LANGS.values():
+                urls[code] = {}
+                for kind in ("Primary", "Logo"):
+                    url, provider = pick_image(item, kind, code, titles[key])
+                    if url:
+                        urls[code][kind] = [url, provider]
+            rec = {"lang": rec.get("lang") if same_item else None, "urls": urls}
+        rec.update(jf=item["Id"], at=int(time.time()))
+        if rec.get("lang") != lang:
+            for kind, (url, provider) in rec["urls"][lang].items():
                 log(f"{item['Name']}: {'Japanese' if lang == 'ja' else 'English'} {'poster' if kind == 'Primary' else 'logo'} ({provider})")
                 if not dry:
                     set_image(item["Id"], kind, url, provider)
-                rec[kind] = url
+            rec["lang"] = lang
+        for kind in ("Primary", "Logo"):                       # what the TV shows
+            rec[kind] = (rec["urls"][lang].get(kind) or [None])[0]
+        if not dry:                                           # both languages kept locally for the website
+            for code, kinds in rec["urls"].items():
+                for kind, (url, _) in kinds.items():
+                    if not next(ARTWORK_CACHE.glob(f"{item['Id']}-{kind}-{code}.*"), None):
+                        try:
+                            cache_image(item["Id"], kind, code, url)
+                        except Exception:
+                            pass
         state[key] = rec
     try:                                                # the TV: Kodi keeps its own artwork
         shows = kodi_rpc("VideoLibrary.GetTVShows", {"properties": ["uniqueid", "art"]}).get("result", {}).get("tvshows", [])

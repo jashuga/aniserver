@@ -18,8 +18,12 @@ _IMG_LOCK = threading.Lock()
 IMG_CACHE_BYTES = 96 * 1024 * 1024
 
 
+VIEWER = threading.local()      # per request: .art = the viewer's artwork pick when it differs from the shared one
+
+
 def img_url(item_id, kind, w, tag=None):
-    return f"/img/{item_id}/{kind}?w={w}" + (f"&t={tag[:10]}" if tag else "")
+    art = getattr(VIEWER, "art", "") if kind in ("Primary", "Logo") else ""
+    return f"/img/{item_id}/{kind}?w={w}" + (f"&t={tag[:10]}" if tag else "") + (f"&l={art}" if art else "")
 
 
 def thumb_of(i, w=480):
