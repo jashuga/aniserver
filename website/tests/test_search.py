@@ -26,7 +26,7 @@ class FakeSonarr:
         if path == "/episode?seriesId=5":
             return SEASON1 + SEASON2 + SPECIAL
         if path == "/series/5":
-            return {"id": 5, "title": "Orb", "qualityProfileId": 7, "alternateTitles": [{"title": "Chi. Chikyuu no Undou ni Tsuite"}]}
+            return {"id": 5, "title": "Orb", "tvdbId": 421583, "qualityProfileId": 7, "alternateTitles": [{"title": "Chi. Chikyuu no Undou ni Tsuite"}]}
         if path == "/qualityprofile/7":
             return PROFILE
         if path == "/indexer":
@@ -35,6 +35,7 @@ class FakeSonarr:
             return self.parses.get(urllib.parse.unquote(path.split("=", 1)[1]))
         if method == "POST" and path == "/release/push":
             self.pushed.append((body["title"], body["indexer"]))
+            self.tvdb = body.get("tvdbId")
             ok = self.accept(body["title"])
             return [{"approved": ok, "rejections": [] if ok else ["Existing file meets cutoff"]}]
         if method == "POST" and path == "/command":
@@ -73,6 +74,7 @@ class BatchFirst(unittest.TestCase):
         self.assertEqual(done, {"batches": ["[Judas] Orb (Season 1) [Batch]"], "season_searches": [], "episode_search": []})
         self.assertEqual(sonarr.commands, [])
         self.assertEqual(queries, ["Orb", "Chi. Chikyuu no Undou ni Tsuite"])
+        self.assertEqual(sonarr.tvdb, 421583)                         # so Sonarr can place titles it can't match by name
 
     def test_a_turned_down_batch_is_followed_by_the_next_and_then_by_sonarrs_own_search(self):
         parses = {f"Orb S01 v{n}": parsed(SEASON1, score=900 - n) for n in range(6)}

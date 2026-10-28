@@ -83,12 +83,13 @@ def batch_candidates(series, wanted, releases, max_episode_gb=None):
     return [(r, covers) for *_, r, covers in out]
 
 
-def push(release, indexer_name):
-    """Offer one release to Sonarr; it downloads it if its rules accept it. Returns (accepted, reasons if not)."""
+def push(release, indexer_name, tvdb_id=None):
+    """Offer one release to Sonarr; it downloads it if its rules accept it. Returns (accepted, reasons if not).
+    The TVDB id lets Sonarr place titles it can't match by name ("[AC] Fate Apocrypha v1 S01")."""
     link = release.get("downloadUrl") or release.get("magnetUrl")
     body = {"title": release["title"], "downloadUrl": link, "protocol": "torrent", "publishDate": release["publishDate"],
             "size": release.get("size"), "seeders": release.get("seeders"), "leechers": release.get("leechers"),
-            "infoUrl": release.get("infoUrl"), "indexer": indexer_name}
+            "infoUrl": release.get("infoUrl"), "indexer": indexer_name, "tvdbId": tvdb_id}
     if (release.get("magnetUrl") or "").startswith("magnet:"):
         body["magnetUrl"] = release["magnetUrl"]
     res = sonarr("POST", "/release/push", body)
@@ -107,7 +108,7 @@ def grab_batches(series, wanted, done, log):
         if not left or all(tries[n] >= MAX_PUSHES for n in left):
             continue
         tries.update(left)
-        ok, why = push(r, indexers[r["indexer"]])
+        ok, why = push(r, indexers[r["indexer"]], series.get("tvdbId"))
         if ok:
             covered |= set(seasons)
             done["batches"].append(r["title"])

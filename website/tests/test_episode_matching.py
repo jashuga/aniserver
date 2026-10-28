@@ -202,6 +202,19 @@ class UpcomingEntries(unittest.TestCase):
             everywhere(sonarr=saved)
 
 
+class SpecialsFallback(unittest.TestCase):
+    def test_an_ova_the_air_dates_cannot_place_does_not_take_every_special(self):
+        # Tonikawa, 2026-10-28: "~Uniform~" mapped to TVDB season 0 with no matching date monitored all 19 specials
+        specials = weekly(0, 1, 19, 2021, 1, 1)
+        saved = app.sonarr
+        everywhere(sonarr=FakeSonarr(specials, [0]))
+        try:
+            self.assertIsNone(app.monitor_entry(1, entry((2023, 7, 1), (2023, 7, 1), 1, fmt="OVA"), season_hint=0))
+            self.assertEqual(app.sonarr.monitored(), [])
+        finally:
+            everywhere(sonarr=saved)
+
+
 class SeasonFallback(unittest.TestCase):
     def test_guessed_season_that_tvdb_does_not_have(self):
         self._lookup = app.tvdb_seasons

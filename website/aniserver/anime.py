@@ -364,7 +364,8 @@ def monitor_entry(series_id, media, season_hint=None):
         time.sleep(1.5)
     picked = entry_episodes(eps, media)
     upcoming = media.get("status") == "NOT_YET_RELEASED" or (anilist_date(media.get("startDate")) or 0) > time.time()
-    if not picked and season_hint is not None and not upcoming:    # an upcoming entry must not grab the old season
+    # an upcoming entry must not grab the old season; an OVA/special the air dates can't place must not take every special
+    if not picked and season_hint and not upcoming:
         picked = sorted((e for e in eps if e["seasonNumber"] == season_hint), key=lambda e: e["episodeNumber"])
     if not picked:
         return None
