@@ -10,6 +10,9 @@ sonarr:
 
     quality_profiles:
       - trash_id: 20e0fc959f1f1704bed501f23bdae76f  # [Anime] Remux-1080p
+        # accept good releases from groups TRaSH hasn't rated (score 0) when no rated one exists;
+        # rated groups still win, LQ groups (-10000) and AV1 stay rejected (user, 2026-10-28)
+        min_format_score: 0
         # stop upgrading once a top-tier Blu-ray release (BD Tier 01-05, score >= 1000) is grabbed;
         # prevents grabbing a second, slightly-higher-scored copy (e.g. encode + remux of the same show)
         upgrade:
@@ -32,6 +35,9 @@ radarr:
 
     quality_profiles:
       - trash_id: 722b624f9af1e492284c4bc842153a38  # [Anime] Remux-1080p
+        # accept good releases from groups TRaSH hasn't rated (score 0) when no rated one exists;
+        # rated groups still win, LQ groups (-10000) and AV1 stay rejected (user, 2026-10-28)
+        min_format_score: 0
         reset_unmatched_scores:
           enabled: true
         # same as the shows: stop upgrading once a top-tier Blu-ray release (score >= 1000) is grabbed
