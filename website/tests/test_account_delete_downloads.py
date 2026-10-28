@@ -250,8 +250,9 @@ class WatchNow(unittest.TestCase):
 class AnimeArtwork(unittest.TestCase):
     """Anime posters and title logos follow the Account page setting (Japanese or English), on the site and the TV."""
 
-    def run_apply(self, lang, kodi_shows, state_file):
+    def run_apply(self, lang, kodi_shows, state_file, cached=None):
         applied, kodi_calls = [], []
+        cached = [] if cached is None else cached
         series = [{"tvdbId": 1, "title": "Re:Zero", "originalLanguage": {"name": "Japanese"}},
                   {"tvdbId": 2, "title": "Castlevania", "originalLanguage": {"name": "English"}},
                   {"tvdbId": 3, "title": "UBW", "originalLanguage": {"name": "Japanese"}}]
@@ -284,7 +285,9 @@ class AnimeArtwork(unittest.TestCase):
             with Patch(sonarr=lambda method, path, body=None, timeout=60: series, radarr=lambda method, path, body=None, timeout=60: [],
                        jellyfin=jellyfin, kodi_rpc=kodi_rpc, ARTWORK_STATE=state_file,
                        graphql=lambda query, variables=None: {"Media": {"coverImage": {"extraLarge": "https://anilist/ubw.jpg"}}},
-                       set_image=lambda item_id, kind, url, provider: applied.append((item_id, kind, url))):
+                       set_image=lambda item_id, kind, url, provider: applied.append((item_id, kind, url)),
+                       ARTWORK_CACHE=state_file.parent / "cache",
+                       cache_image=lambda item_id, kind, code, url: cached.append((item_id, kind, code, url))):
                 app.apply_anime_artwork(log=lambda msg: None)
         finally:
             app.CONF["anime_artwork"] = saved
@@ -303,6 +306,30 @@ class AnimeArtwork(unittest.TestCase):
             self.assertEqual(self.run_apply("japanese", kodi, state), ([], []))             # nothing twice
             applied, _ = self.run_apply("english", kodi, state)                             # switched on the Account page
             self.assertEqual(applied[:2], [("a", "Primary", "https://img/en.jpg"), ("a", "Logo", "https://img/logo-en.png")])
+
+    def test_both_languages_are_kept_for_people_who_picked_the_other_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            cached = []
+            self.run_apply("japanese", [], Path(d) / "artwork.json", cached)
+            self.assertEqual(sorted(c for c in cached if c[0] == "a"),
+                             [("a", "Logo", "en", "https://img/logo-en.png"), ("a", "Logo", "ja", "https://img/logo-ja.png"),
+                              ("a", "Primary", "en", "https://img/en.jpg"), ("a", "Primary", "ja", "https://img/ja-best.jpg")])
+
+    def test_everyone_picks_their_own_and_the_owners_pick_is_the_shared_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            conf = Path(d) / "config.json"
+            conf.write_text(json.dumps({"anime_artwork": "japanese"}))
+            saved = app.CONF.get("anime_artwork")
+            try:
+                with Patch(ARTWORK_PREFS=Path(d) / "prefs.json", CONFIG_FILE=conf):
+                    app.CONF["anime_artwork"] = "japanese"
+                    self.assertFalse(app.set_user_artwork("bob", "english"))              # just bob, on the website
+                    self.assertEqual((app.user_artwork("bob"), app.user_artwork("carol"), app.artwork_language()), ("english", "japanese", "japanese"))
+                    self.assertTrue(app.set_user_artwork(app.OWNER, "english"))           # the owner's pick: TV + Jellyfin too
+                    self.assertEqual((app.artwork_language(), app.user_artwork("carol")), ("english", "english"))
+                    self.assertEqual(json.loads(conf.read_text())["anime_artwork"], "english")
+            finally:
+                app.CONF["anime_artwork"] = saved
 
 
 if __name__ == "__main__":
