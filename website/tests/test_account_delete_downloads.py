@@ -322,6 +322,16 @@ class AnimeArtwork(unittest.TestCase):
                              [("a", "Logo", "en", "https://img/logo-en.png"), ("a", "Logo", "ja", "https://img/logo-ja.png"),
                               ("a", "Primary", "en", "https://img/en.jpg"), ("a", "Primary", "ja", "https://img/ja-best.jpg")])
 
+    def test_japanese_artwork_also_means_romaji_titles(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "artwork.json"
+            state.write_text(json.dumps({"s1": {"jf": "a", "romaji": "Re:Zero kara Hajimeru Isekai Seikatsu"}, "s2": {"jf": "b", "romaji": ""}}))
+            with Patch(ARTWORK_STATE=state):
+                self.assertEqual(app.romaji_title("Re:ZERO", "a", pick="japanese"), "Re:Zero kara Hajimeru Isekai Seikatsu")
+                self.assertEqual(app.romaji_title("Re:ZERO", key="s1", pick="japanese"), "Re:Zero kara Hajimeru Isekai Seikatsu")  # Sonarr cards
+                self.assertEqual(app.romaji_title("Re:ZERO", "a", pick="english"), "Re:ZERO")
+                self.assertEqual(app.romaji_title("Castlevania", "b", pick="japanese"), "Castlevania")    # no romaji: unchanged
+
     def test_everyone_picks_their_own_and_the_owners_pick_is_the_shared_one(self):
         with tempfile.TemporaryDirectory() as d:
             conf = Path(d) / "config.json"

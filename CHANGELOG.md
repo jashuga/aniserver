@@ -1,8 +1,22 @@
 # Changelog
 
-## v1.1.0 — unreleased
+## v1.1.0 — 2026-11-03
 
-Easier to set up on your own machine.
+Easier to set up on your own machine, faster downloads, passkeys.
+
+- **Passkeys**: sign in with Windows Hello, Face ID, Touch ID or a phone (Account page → Add this device). No password
+  or code, and it keeps working when a browser forgets its cookies. Standard library only (CBOR, ES256, RS256).
+- **Batch-first search**: adding a season asks Prowlarr for whole-season batches and lets Sonarr pick (seconds instead
+  of Sonarr's episode-by-episode anime search, which took ~40 s per episode); falls back to Sonarr's own search.
+- **Artwork and titles per person**: everyone picks Japanese or English artwork on their Account page; Japanese also
+  shows romaji titles. The owner's pick is what the Jellyfin apps and the TV show.
+- **Separate watch histories**: the TV (Kodi/mpv) keeps its own; the website keeps each person's. Play on TV resumes
+  where the TV stopped; Continue on TV hands the website's spot over.
+- **Surround on a Dolby Digital soundbar**: mpv re-encodes any 5.1 track to AC3 (`mpv/mpv.conf`);
+  `setup/hdmi-passthrough.sh` switches Intel laptops from the SOF driver (stereo-only HDMI) to the legacy one.
+- **Safety net**: imports batches Sonarr only knew by TVDB id, scans a missing movie's own folder, and deleted titles
+  leave Jellyfin and the TV reliably (waits for the files and for Kodi's rescan first).
+- **Tests on GitHub Actions** (Python 3.12 and 3.13).
 
 - **`./install.sh`**: downloads whatever is missing of Sonarr, Radarr, Prowlarr, qBittorrent and Jellyfin
   (`setup/prereqs.sh`: into `~/.local/opt` as user services, no sudo), links the helper scripts, installs the services

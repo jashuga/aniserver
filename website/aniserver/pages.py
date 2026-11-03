@@ -9,6 +9,7 @@ from pathlib import Path
 
 from aniserver.config import CONF, MANGA, PROFILES, TV
 from aniserver.anime import clean_description, title_of
+from aniserver.artwork import romaji_title
 
 IMG_WIDTHS = (160, 240, 360, 480, 640, 960, 1280, 1920)
 
@@ -18,7 +19,12 @@ _IMG_LOCK = threading.Lock()
 IMG_CACHE_BYTES = 96 * 1024 * 1024
 
 
-VIEWER = threading.local()      # per request: .art = the viewer's artwork pick when it differs from the shared one
+VIEWER = threading.local()      # per request: .art = the viewer's artwork pick when it differs from the shared one; .pick = it
+
+
+def shown(name, jf_id=None, key=None):
+    """A title as this viewer wants it: romaji with Japanese artwork, else the English name."""
+    return romaji_title(name, jf_id, key, getattr(VIEWER, "pick", "english"))
 
 
 def img_url(item_id, kind, w, tag=None):
@@ -198,6 +204,8 @@ def poster_html(c, n):
 def details_html(c, n, back, host):
     m = c["m"]
     title, romaji = title_of(m), m["title"]["romaji"]
+    if getattr(VIEWER, "pick", "") == "japanese" and romaji:
+        title, romaji = romaji, (m["title"].get("english") or "")
     cover = (m.get("coverImage") or {}).get("extraLarge") or (m.get("coverImage") or {}).get("large") or ""
     color = (m.get("coverImage") or {}).get("color") or "#2a2a33"
     banner = (f'background-image:url({html.escape(m["bannerImage"])})' if m.get("bannerImage")

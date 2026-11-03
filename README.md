@@ -19,8 +19,9 @@ and Kodi, running on one Ubuntu machine.
 - **Watch on the TV while it downloads**, resume anywhere, skip openings, next episode, Continue on TV.
 - **A safety net** that fixes or reports what usually breaks: shows left with nothing to download, stuck or misread
   imports, the TV missing episodes or matching the wrong show, services that stop answering.
-- **Anime artwork in Japanese or English** (posters and title logos), set on the Account page.
-- **Accounts**: one login per person (password + authenticator code once per browser), each with their own history.
+- **Anime artwork in Japanese or English** (posters, title logos, romaji titles), each person's own pick.
+- **Accounts**: one login per person (password + authenticator code once per browser, or a passkey such as
+  Windows Hello), each with their own history; the TV keeps its own.
 - **Manga**: Nyaa search, downloads and followed series for Komga.
 
 ## Getting started

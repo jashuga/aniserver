@@ -27,7 +27,7 @@ from aniserver.library import _download_names, _downloads_by_key, continue_watch
 from aniserver import passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
-from aniserver.pages import VIEWER, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
+from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
 
@@ -69,6 +69,7 @@ class Handler(BaseHTTPRequestHandler):
         self.user = user or OWNER
         pick = user_artwork(user) if user else ""
         VIEWER.art = pick if pick and pick != artwork_language() else ""     # their own artwork pick, if not the shared one
+        VIEWER.pick = pick or artwork_language()
         if not user:
             return False
         # sliding sign-in: every visit pushes the expiry a year out again, so each browser signs in only once
@@ -460,7 +461,7 @@ class Handler(BaseHTTPRequestHandler):
                                        f'{self.watch_buttons(e["path"], c["title"] + " " + e["label"])}</div>' for e in reversed(c["files"]))
                         body += f'<details><summary>All episodes ({len(c["files"])})</summary>{rows}</details>'
             out.append(f"""<div class="hcard{' focus' if focus and focus == c['title'] else ''}" id="card-{c['id']}">
-<img src="{html.escape(c['poster'])}" alt="" loading="lazy"><div class="info"><h3>{f'<a href="/title/{jf_ids[c["id"]]}">{html.escape(c["title"])}</a>' if c["id"] in jf_ids else html.escape(c['title'])}{f' <span class="muted" style="font-weight:400">({c["year"]})</span>' if c['year'] else ''}</h3>
+<img src="{html.escape(c['poster'])}" alt="" loading="lazy"><div class="info"><h3>{f'<a href="/title/{jf_ids[c["id"]]}">{html.escape(shown(c["title"], key=c["id"]))}</a>' if c["id"] in jf_ids else html.escape(shown(c['title'], key=c['id']))}{f' <span class="muted" style="font-weight:400">({c["year"]})</span>' if c['year'] else ''}</h3>
 {status}{body}<div class="hact">{delete_button(c, c["title"], round_btn=False)}</div></div></div>""")
         if focus:   # bring the just-added show to the top
             out.sort(key=lambda h: f'>{html.escape(focus)}' not in h and f'>{html.escape(focus)} <' not in h)
@@ -548,7 +549,7 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
         bg = backdrop_of(s, 1920)
         logo = logo_of(s)
         img = (f'<img class="bg" src="{bg}" alt="" fetchpriority="high">' if k == 0 else f'<img class="bg" data-src="{bg}" alt="">')
-        name = s.get("Name") or ""
+        name = shown(s.get("Name") or "", s.get("Id"))
         head = f'<img class="logo" src="{logo}" alt="{esc(name)}">' if logo else f"<h1>{esc(name)}</h1>"
         if ep:
             pct = progress_pct(ep)
@@ -601,9 +602,9 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
 <a class="btn play" href="/anime">Browse anime</a></section>"""
 
         rows = []
-        cw = [ecard(e, e.get("SeriesName") or e.get("Name"), " · ".join(x for x in (ep_code(e), time_left(e)) if x)) for e in res]
+        cw = [ecard(e, shown(e.get("SeriesName") or e.get("Name"), e.get("SeriesId") or e.get("Id")), " · ".join(x for x in (ep_code(e), time_left(e)) if x)) for e in res]
         started = {e.get("SeriesId") for e in res}
-        cw += [ecard(e, e.get("SeriesName") or "", f"{ep_code(e)} · {e.get('Name') or ''}", tag="Next")
+        cw += [ecard(e, shown(e.get("SeriesName") or "", e.get("SeriesId")), f"{ep_code(e)} · {e.get('Name') or ''}", tag="Next")
                for e in nu if e.get("SeriesId") not in started]
         rows.append(row_html("Continue watching", cw))
         per_show, newc = {}, []
@@ -614,7 +615,7 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
             if per_show[e.get("SeriesId")] > 4:
                 continue
             tag = "New" if (e.get("DateCreated") or "") > week_ago else ""
-            newc.append(ecard(e, e.get("SeriesName") or "", f"{ep_code(e)} · {e.get('Name') or ''}", tag=tag))
+            newc.append(ecard(e, shown(e.get("SeriesName") or "", e.get("SeriesId")), f"{ep_code(e)} · {e.get('Name') or ''}", tag=tag))
         rows.append(row_html("New episodes", newc))
         fresh_series = {e.get("SeriesId") for e in new if (e.get("DateCreated") or "") > week_ago and not (e.get("UserData") or {}).get("Played")}
         shows = []
@@ -626,9 +627,9 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
             dl_html = (f'<div class="dl">Downloading · {prog[0]:.0f}%<div class="bar"><i style="width:{prog[0]:.0f}%"></i></div></div>' if prog else "")
             unplayed = (s.get("UserData") or {}).get("UnplayedItemCount")
             sub = year_span(s) + (f" · {unplayed} to watch" if unplayed else " · Watched")
-            shows.append(pcard(f"/title/{s['Id']}", poster_of_item(s), s["Name"], sub, "New episodes" if s["Id"] in fresh_series else "", dl_html))
+            shows.append(pcard(f"/title/{s['Id']}", poster_of_item(s), shown(s["Name"], s["Id"]), sub, "New episodes" if s["Id"] in fresh_series else "", dl_html))
         rows.append(row_html("My shows", shows, "tall", ("/shows", "Downloads & status")))
-        movies = [pcard(f"/title/{m['Id']}", poster_of_item(m), m["Name"], " · ".join(meta_bits(m)[:2]))
+        movies = [pcard(f"/title/{m['Id']}", poster_of_item(m), shown(m["Name"], m["Id"]), " · ".join(meta_bits(m)[:2]))
                   for m in lib if m.get("Type") == "Movie"]
         rows.append(row_html("Movies", movies, "tall"))
         coming = []
@@ -649,7 +650,7 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
             else:
                 sub, dl_html = "Waiting for a release", ""
             href = f"/title/{item['Id']}" if item else f"/shows#card-{c['id']}"
-            coming.append(pcard(href, poster_of_item(item) if item else c["poster"], c["title"], sub, "", dl_html))
+            coming.append(pcard(href, poster_of_item(item) if item else c["poster"], shown(c["title"], key=c.get("id")), sub, "", dl_html))
         rows.append(row_html("On the way", coming, "tall", ("/shows", "See all")))
         trend = []
         for c in (tr or [])[:20]:
@@ -740,7 +741,7 @@ and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{
 
     def title_hero(self, it, href, label, tv_id, extra_btn, epline):
         logo = logo_of(it)
-        name = it.get("Name") or ""
+        name = shown(it.get("Name") or "", it.get("Id"))
         head = f'<img class="logo" src="{logo}" alt="{esc(name)}">' if logo else f"<h1>{esc(name)}</h1>"
         play = f'<a class="btn play" href="{href}">{icon("play")}{esc(label)}</a>' if href else ""
         seasons = it.get("ChildCount") if it.get("Type") == "Series" else None

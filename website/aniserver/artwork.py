@@ -64,6 +64,51 @@ def set_user_artwork(user, value):
     return False
 
 
+_ROMAJI = {"mtime": None, "jf": {}, "key": {}}
+
+
+def romaji_title(name, jf_id=None, key=None, pick="english"):
+    """The romaji title (AniList's) for people who picked Japanese artwork, else `name`. Looked up by Jellyfin id
+    (series/movie) or by Sonarr/Radarr key ('s<tvdb>' / 'm<tmdb>'); anything unknown keeps its name."""
+    if pick != "japanese":
+        return name
+    try:
+        mtime = ARTWORK_STATE.stat().st_mtime
+        if mtime != _ROMAJI["mtime"]:
+            state = json.loads(ARTWORK_STATE.read_text())
+            _ROMAJI.update(mtime=mtime, jf={r["jf"]: r["romaji"] for r in state.values() if r.get("jf") and r.get("romaji")},
+                           key={k: r["romaji"] for k, r in state.items() if r.get("romaji")})
+    except (OSError, ValueError):
+        return name
+    return _ROMAJI["jf"].get(jf_id) or _ROMAJI["key"].get(key) or name
+
+
+def romaji_lookup(keys):
+    """{'s<tvdb>'/'m<tmdb>': AniList romaji title}: a show's first season (or the movie) on AniList."""
+    from aniserver.anime import anilist_to_tmdb, anilist_to_tvdb
+    pick = {}
+    for aid, (tvdb, season) in anilist_to_tvdb().items():
+        k = f"s{tvdb}"
+        if k in keys and (k not in pick or ((season or 99), aid) < pick[k][0]):
+            pick[k] = (((season or 99), aid), aid)
+    for aid, tmdb in anilist_to_tmdb().items():
+        k = f"m{tmdb}"
+        if k in keys and k not in pick:
+            pick[k] = ((0, aid), aid)
+    ids = {aid: k for k, (_, aid) in pick.items()}
+    out, todo = {}, list(ids)
+    for n in range(0, len(todo), 25):
+        q = "query{" + " ".join(f"a{a}: Media(id:{a}){{id title{{romaji}}}}" for a in todo[n:n + 25]) + "}"
+        try:
+            for m in graphql(q).values():
+                if m and m["title"].get("romaji"):
+                    out[ids[m["id"]]] = m["title"]["romaji"]
+        except Exception:
+            pass
+        time.sleep(1)
+    return out
+
+
 def cached_image(item_id, kind, value):
     """The local copy of a title's poster/logo in `value`'s language, if there is one."""
     code = ARTWORK_LANGS.get(value)
@@ -159,6 +204,11 @@ def apply_anime_artwork(dry=False, log=print):
         movies = kodi_rpc("VideoLibrary.GetMovies", {"properties": ["uniqueid", "art"]}).get("result", {}).get("movies", [])
     except Exception:
         shows = movies = []
+    missing = {k for k, r in state.items() if "romaji" not in r}     # romaji titles for people who picked Japanese
+    if missing and not dry:
+        found = romaji_lookup(missing)
+        for k in missing:
+            state[k]["romaji"] = found.get(k, "")
     for kind, items, method, idkey in (("s", shows, "VideoLibrary.SetTVShowDetails", "tvshowid"), ("m", movies, "VideoLibrary.SetMovieDetails", "movieid")):
         for t in items:
             rec = state.get(kind + str((t.get("uniqueid") or {}).get("tvdb" if kind == "s" else "tmdb"))) or {}
