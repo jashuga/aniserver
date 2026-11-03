@@ -183,7 +183,7 @@ def note_login(user, ip, remembered, agent):
     """Successful internet sign-ins, so "why did it ask for the code again?" can be answered (which browser, which way)."""
     LOGIN_LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOGIN_LOG.open("a") as f:
-        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} user={user} ip={ip} {'remembered browser' if remembered else 'code entered'} agent={agent[:200]!r}\n")
+        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} user={user} ip={ip} {'passkey' if remembered == 'passkey' else 'remembered browser' if remembered else 'code entered'} agent={agent[:200]!r}\n")
 
 
 def too_many_fails(ip):

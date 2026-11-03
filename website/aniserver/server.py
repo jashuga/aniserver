@@ -24,6 +24,7 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
+from aniserver import passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import VIEWER, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
@@ -194,7 +195,46 @@ class Handler(BaseHTTPRequestHandler):
         self.send(page("<p>Not found.</p>", "anime", self.host()), 404)
 
     # --- POST ---
+    def passkey_post(self):
+        """Passkey sign-in (no session yet) and adding one (signed in). JSON in, JSON out."""
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            return self.send_json({"ok": False, "msg": "Bad request"}, 400)
+        rp, ip = self.host(), self.client_ip()
+        try:
+            if self.path == "/api/passkey/login/options":
+                return self.send_json(passkeys.login_options(rp))
+            if self.path == "/api/passkey/login":
+                if too_many_fails(ip):
+                    return self.send_json({"ok": False, "msg": "Too many failed attempts. Try again in 15 minutes."})
+                user = passkeys.login(body, rp)
+                note_login(user, ip, "passkey", self.headers.get("User-Agent") or "")
+                self.send_response(200)
+                for c in session_cookies(user, self.public()):
+                    self.send_header("Set-Cookie", c)
+                data = json.dumps({"ok": True, "next": self.next_url(body)}).encode()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
+            if not self.authed():
+                return self.send_json({"ok": False, "msg": "Signed out. Reload the page."}, 401)
+            if self.path == "/api/passkey/register/options":
+                return self.send_json(passkeys.register_options(self.user, PROFILES.get(self.user, (self.user.title(),))[0], rp))
+            if self.path == "/api/passkey/register":
+                passkeys.register(self.user, body, rp, body.get("name", ""))
+                return self.send_json({"ok": True})
+        except (ValueError, KeyError, IndexError) as e:
+            if self.path == "/api/passkey/login":
+                record_fail(ip, "passkey")
+            return self.send_json({"ok": False, "msg": str(e) if isinstance(e, ValueError) else "That didn't work. Try again."})
+        return self.send_json({"ok": False, "msg": "Unknown action"}, 404)
+
     def do_POST(self):
+        if self.path.startswith("/api/passkey/"):
+            return self.passkey_post()
         if self.path.startswith("/api/tvplay"):        # notification button: signed link, no session needed
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if not signature_ok(qs):
@@ -238,6 +278,9 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=apply_anime_artwork, kwargs={"log": lambda msg: None}, daemon=True).start()
             where = "here, on the TV and in the Jellyfin apps. It updates over the next minute" if shared else "for you on this website"
             return self.redirect("/account?ok=" + urllib.parse.quote(f"Anime artwork set to {f['lang'].title()} {where}."))
+        if self.path == "/account/passkey/remove":
+            passkeys.remove(self.user, f.get("id", ""))
+            return self.redirect("/account?ok=" + urllib.parse.quote("Passkey removed."))
         if self.path in ("/account/password", "/account/jellyfin"):
             return self.account_post(f)
         if self.path.startswith("/security/"):
@@ -450,7 +493,18 @@ class Handler(BaseHTTPRequestHandler):
 <div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")} (user <b>{esc(self.user)}</b>).</p>
 <form method="post" action="/account/jellyfin" class="pwform">{field("current", "Current Jellyfin password", "current-password")}
 {field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}<button>Change Jellyfin password</button></form>
-<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.artwork_card()}</div>"""
+<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.passkey_card()}{self.artwork_card()}</div>
+<script src="{asset('passkeys.js')}" defer></script>"""
+
+    def passkey_card(self):
+        keys = (remote_users().get(self.user) or {}).get("passkeys") or []
+        day = lambda t: time.strftime("%b %d, %Y", time.localtime(t)) if t else "never"
+        rows = "".join(f'''<li><b>{esc(k["name"])}</b> <span class="muted">added {day(k.get("added"))} · last used {day(k.get("used"))}</span>
+<form method="post" action="/account/passkey/remove" class="inline"><input type="hidden" name="id" value="{esc(k["id"])}"><button class="ghost">Remove</button></form></li>'''
+                       for k in keys)
+        return f"""<div class="card acard"><h3>Passkeys</h3><p class="muted">Sign in with Windows Hello, Face ID, Touch ID or your phone: no password or code,
+and it keeps working even if the browser forgets you.</p>{f'<ul class="pklist">{rows}</ul>' if rows else ''}
+<div class="msg" id="pk-msg" hidden></div><button id="pk-add">Add this device</button></div>"""
 
     def artwork_card(self):
         cur = user_artwork(self.user)
@@ -1024,7 +1078,10 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
         return f"""<div class="login"><div class="brand"><i></i>aniserver</div>{err}
 <form method="post" action="/login">{nxt}<input type="text" name="username" placeholder="Username" autocomplete="username" value="{html.escape(trusted or '')}" {'' if trusted else 'autofocus'} required>
 <input type="password" name="password" placeholder="Password" autocomplete="current-password" {'autofocus' if trusted else ''} required>
-{code}<button type="submit">Log in</button>{note}</form></div>"""
+{code}<button type="submit">Log in</button>{note}</form>
+<div class="pk"><div class="msg" id="pk-msg" hidden></div><button type="button" class="ghost" id="pk-signin" data-next="{html.escape((qs.get("next") or ["/"])[0])}">Sign in with a passkey</button>
+<p class="hint">Windows Hello, Face ID, Touch ID or your phone. Add one on your Account page first.</p></div></div>
+<script src="{asset('passkeys.js')}" defer></script>"""
 
     # --- remote access setup (home network / Tailscale only) ---
     def security_page(self, qs, setup=None):
