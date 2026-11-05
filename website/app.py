@@ -6,6 +6,7 @@ The code lives in the aniserver/ package next to this file, one module per job:
   services   Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Kodi and AniList clients, shared caches
   auth       sign-in: passwords, authenticator codes, signed cookies, password changes
   anime      adding anime/movies: AniList search, AniList -> TVDB/TMDB, seasons matched by air date
+  media      regular movies and TV: Radarr/Sonarr lookup, trending lists, adding with the regular profiles
   manga      Nyaa manga search, downloads and follows
   library    status of everything in Sonarr/Radarr, live downloads, deleting, Jellyfin library queries
   streaming  playback: tracks, subtitles, HLS + adaptive ladder, fonts, bitrates, progress, the TV
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if __name__ == "__main__" and sys.argv[1:2] == ["setup"]:    # first-time setup: works before config.json exists
     from aniserver.wizard import main as setup
     raise SystemExit(setup())
-for _name in ("config", "services", "auth", "passkeys", "search", "anime", "manga", "library", "streaming", "pages", "artwork", "server"):
+for _name in ("config", "services", "auth", "passkeys", "search", "anime", "media", "manga", "library", "streaming", "pages", "artwork", "server"):
     globals().update({k: v for k, v in vars(importlib.import_module(f"aniserver.{_name}")).items() if not k.startswith("__")})
 
 if __name__ == "__main__":

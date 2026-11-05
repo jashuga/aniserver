@@ -22,12 +22,13 @@ from aniserver.config import CONF, HOME_NETWORKS, JELLYFIN, OWNER, PROFILES, REM
 from aniserver.services import POOL, _JF_CACHE, home_public_ip, jellyfin, jf_item, jf_maps, jf_uid, swr
 from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_COOKIE, change_jellyfin_password, change_website_password, check_password, cookie_flags, hash_password, note_login, record_fail, remote_token, remote_token_user, remote_users, save_remote_users, session_cookies, too_many_fails, totp_ok
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
+from aniserver import media
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
 from aniserver import passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
-from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
+from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, media_details_html, media_poster_html, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
 
@@ -189,6 +190,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(page(self.search_page(qs), "search", self.host(), "aniserver · Manga", user=self.user))
         if url.path == "/anime":
             return self.send(page(self.anime_page(qs), "anime", self.host(), "aniserver · Anime", user=self.user))
+        if url.path == "/movies":
+            return self.send(page(self.media_page(qs), "media", self.host(), "aniserver · Movies & TV", user=self.user))
         if url.path == "/downloads":
             return self.send(page(self.downloads_page(qs), "downloads", self.host(), "aniserver · Downloads", user=self.user))
         if url.path == "/following":
@@ -309,6 +312,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             elif self.path == "/anime/addmovie":
                 title, result = movie_add(int(f["tmdb"]) if f.get("tmdb") else None, int(f.get("anilist") or 0))
+                return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
+            elif self.path == "/media/addmovie":
+                watch = f.get("watch") == "1"
+                title, result = media.add_movie(int(f["id"]), self.user, watch)
+                to = "/downloads?" if watch else "/shows?"
+                return self.redirect(to + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
+            elif self.path == "/media/addshow":
+                title, result = media.add_show(int(f["id"]), f.get("mode") if f.get("mode") in ("all", "latest", "future") else "all")
                 return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             else:
                 return self.redirect("/")
@@ -1066,6 +1077,39 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
         posters = "".join(poster_html(c, n) for n, c in enumerate(cards))
         templates = "".join(details_html(c, n, back, self.host()) for n, c in enumerate(cards))
         return form + f'<h2>{heading}</h2><div class="posters">{posters}</div>{templates}'
+
+    def media_page(self, qs):
+        """Movies & TV: search Radarr/Sonarr's catalogs, or browse what's trending (Radarr's discover lists)."""
+        q = (qs.get("q") or [""])[0].strip()
+        form = f"""{msg_html(qs)}<form class="search" method="get" action="/movies">
+<div class="bigsearch">{SEARCH_ICON}<input type="text" name="q" value="{html.escape(q)}"
+placeholder="Search movies and TV: severance, dune, the office…" autocomplete="off" {'' if q else 'autofocus'}></div>
+<button type="submit">Search</button></form>
+<p class="hint">Movies and TV that aren't anime. Tap one to add it; it downloads in the best 1080p quality it can find.</p>"""
+        back = "/movies?" + urllib.parse.urlencode({"q": q}) if q else "/movies"
+        try:
+            if q:
+                films, shows = media.find_titles(q)
+                sections = [("Movies", films), ("TV shows", shows)]
+                if not films and not shows:
+                    return form + '<p class="muted">Nothing found. Try another spelling or a shorter name.</p>'
+            else:
+                d = media.discover_cached()
+                sections = [("Trending movies", d["trending"]), ("Popular movies", d["popular"]),
+                            ("Because of what's in the library", d["because"][:24])]
+        except Exception as e:
+            return form + f'<div class="msg err">Couldn\'t search right now: {html.escape(str(e))}</div>'
+        out, n = [], 0
+        for heading, cards in sections:
+            if not cards:
+                continue
+            posters, templates = [], []
+            for c in cards:
+                posters.append(media_poster_html(c, n))
+                templates.append(media_details_html(c, n, back))
+                n += 1
+            out.append(f'<h2>{html.escape(heading)}</h2><div class="posters">{"".join(posters)}</div>{"".join(templates)}')
+        return form + "".join(out)
 
     def login_form(self, qs):
         err = f'<div class="msg err">{html.escape(qs["err"][0])}</div>' if "err" in qs else ""

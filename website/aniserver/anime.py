@@ -322,15 +322,20 @@ def match_movie_by_title(anilist_id):
     raise ValueError("Couldn't match this movie to Radarr's catalog. Try Radarr's own search with its English title.")
 
 
+def drive_root(folders, api):
+    """The first folder while its drive has room (after pending downloads), else the second (the USB SSD), tagged
+    'ssd' so the download goes to that drive too and hardlinks keep working. Returns (folder, tag ids)."""
+    first, second = folders[0], (folders[1] if len(folders) > 1 else "")
+    if not second or effective_free(first) >= INTERNAL_RESERVE or not Path(second).is_dir():
+        return first, []
+    if effective_free(second) > SSD_RESERVE:
+        tag = next((t["id"] for t in api("GET", "/tag") if t["label"] == "ssd"), None)
+        return second, [tag] if tag else []
+    return first, []
+
+
 def movie_root():
-    """Internal drive while it has room (after pending downloads), else the USB SSD (tagged 'ssd' so the
-    download goes to the SSD too and hardlinks keep working)."""
-    if not MOVIE_ROOT_SSD or effective_free(MOVIE_ROOT_INTERNAL) >= INTERNAL_RESERVE or not Path(MOVIE_ROOT_SSD).is_dir():
-        return MOVIE_ROOT_INTERNAL, []
-    if effective_free(MOVIE_ROOT_SSD) > SSD_RESERVE:
-        tag = next((t["id"] for t in radarr("GET", "/tag") if t["label"] == "ssd"), None)
-        return MOVIE_ROOT_SSD, [tag] if tag else []
-    return MOVIE_ROOT_INTERNAL, []
+    return drive_root([MOVIE_ROOT_INTERNAL] + ([MOVIE_ROOT_SSD] if MOVIE_ROOT_SSD else []), radarr)
 
 
 def movie_add(tmdb_id, anilist_id):

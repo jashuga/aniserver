@@ -42,10 +42,12 @@ RSS_FOLDER = "Manga"
 # media folders: the first of each list is the main drive; a second one is used when the main drive fills up
 ANIME_FOLDERS = _folders("anime_folders", [HOME / "Media/Anime", "/mnt/media/Anime"])
 MOVIE_FOLDERS = _folders("movie_folders", [HOME / "Media/Anime Movies", "/mnt/media/Anime Movies"])
+FILM_FOLDERS = _folders("film_folders", [HOME / "Media/Movies", "/mnt/media/Movies"])          # regular (non-anime) movies
+TV_FOLDERS = _folders("tv_folders", [HOME / "Media/TV Shows", "/mnt/media/TV Shows"])          # regular TV shows
 INTERNAL_ROOT = ANIME_FOLDERS[0]
 MOVIE_ROOT_INTERNAL = MOVIE_FOLDERS[0]
 MOVIE_ROOT_SSD = MOVIE_FOLDERS[1] if len(MOVIE_FOLDERS) > 1 else ""
-MEDIA_ROOTS = [os.path.realpath(p) for p in ANIME_FOLDERS + MOVIE_FOLDERS]
+MEDIA_ROOTS = [os.path.realpath(p) for p in ANIME_FOLDERS + MOVIE_FOLDERS + FILM_FOLDERS + TV_FOLDERS]
 MANGA_FOLDER = Path(CONF.get("manga_folder") or HOME / "Media/Manga/Volumes").expanduser()
 STATIC = Path(__file__).resolve().parent.parent / "static"
 

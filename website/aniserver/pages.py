@@ -4,6 +4,7 @@ import hashlib
 import html
 import threading
 import time
+import urllib.parse
 from collections import OrderedDict
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def is_public_host(host):
     return host in (CONF.get("public_host"), CONF.get("watch_host"))
 
 
-NAV = (("home", "/", "Home"), ("anime", "/anime", "Browse"), ("shows", "/shows", "My Shows"), ("search", "/manga", "Manga"),
+NAV = (("home", "/", "Home"), ("anime", "/anime", "Anime"), ("media", "/movies", "Movies & TV"), ("shows", "/shows", "My Shows"), ("search", "/manga", "Manga"),
        ("follows", "/following", "Followed manga"), ("downloads", "/downloads", "Downloads"))
 NAV = tuple(n for n in NAV if MANGA or n[0] not in ("search", "follows"))      # manga is optional
 
@@ -264,6 +265,54 @@ def details_html(c, n, back, host):
 <div class="facts">{"".join(facts)}</div><div class="facts">{genres}</div>
 <p class="desc">{html.escape(clean_description(m.get("description")))}</p>
 <div class="actions">{actions}</div></div></div></template>"""
+
+
+def media_poster_html(c, n):
+    """A regular movie/show card (aniserver/media.py) on the Movies & TV page."""
+    sub = " · ".join(str(x) for x in ("Movie" if c["kind"] == "movie" else "TV", c["year"]) if x)
+    right = {"have": '<span class="chip ok bl">✓ In library</span>',
+             "added": f'<span class="chip warn bl">{"Added · downloading" if c["kind"] == "movie" else "In My Shows"}</span>'}.get(c["state"], "")
+    if c["state"] == "new" and c["kind"] == "movie" and not c["released"]:
+        right = '<span class="chip bl">Not out yet</span>'
+    img = f'<img src="{html.escape(c["poster"])}" alt="" loading="lazy">' if c["poster"] else ""
+    return f"""<button class="poster" data-t="m{n}" type="button">
+<div class="img">{img}<span class="chip tl">{"Movie" if c["kind"] == "movie" else "TV"}</span>{right}</div>
+<div class="t">{html.escape(c["title"])}</div><div class="m">{html.escape(sub)}</div></button>"""
+
+
+def media_details_html(c, n, back):
+    banner = (f'background-image:url({html.escape(c["fanart"])})' if c["fanart"]
+              else "background:linear-gradient(135deg,#2a2a33,#0e0e11)")
+    facts = [x for x in ("Movie" if c["kind"] == "movie" else "TV series", c["year"],
+                         fmt_runtime(c["runtime"] * 600_000_000) if c.get("runtime") else None,
+                         f'{c["seasons"]} season{"s" if c["seasons"] != 1 else ""}' if c.get("seasons") else None,
+                         c.get("status") or None, c["cert"] or None, f'★ {c["rating"]:.1f}' if c["rating"] else None, c["by"] or None) if x]
+    genres = "".join(f'<span class="g">{html.escape(g)}</span>' for g in c["genres"])
+    hidden = (f'<input type="hidden" name="id" value="{c["id"]}"><input type="hidden" name="back" value="{html.escape(back)}">')
+    if c["anime"]:
+        actions = (f'<a class="btn" href="/anime?q={urllib.parse.quote(c["title"])}">Find it on the Anime page</a>'
+                   '<span class="note">This is anime: the Anime page adds it with its seasons, specials and the anime quality rules.</span>')
+    elif c["state"] == "have":
+        actions = f'<span class="chip ok">In library</span><span class="muted">{html.escape(c.get("got") or "Downloaded · play it from Home")}</span>'
+    elif c["state"] == "added":
+        actions = f'<span class="chip warn">Added</span><span class="muted">{"Searching / downloading" if c["kind"] == "movie" else "Waiting for episodes"}</span>'
+    elif c["kind"] == "movie":
+        watch = ('<button name="watch" value="1">Add &amp; watch now on TV</button>' if TV and c["released"] else "")
+        later = "" if c["released"] else '<span class="note">Not out on digital/Blu-ray yet: it downloads as soon as it is.</span>'
+        plain = '<button class="ghost" name="watch" value="0">' if watch else '<button name="watch" value="0">'
+        actions = f'<form method="post" action="/media/addmovie" data-busy>{hidden}{watch}{plain}Add movie</button></form>{later}'
+    else:
+        many = c.get("seasons", 0) > 1
+        buttons = ['<button name="mode" value="all">Add all seasons</button>' if many else '<button name="mode" value="all">Add show</button>']
+        if many:
+            buttons.append(f'<button class="ghost" name="mode" value="latest">Only season {c["seasons"]}</button>')
+        buttons.append('<button class="ghost" name="mode" value="future">Only new episodes</button>')
+        actions = f'<form method="post" action="/media/addshow" data-busy>{hidden}{"".join(buttons)}</form>'
+    cover = f'<img class="cov" src="{html.escape(c["cover"])}" alt="">' if c["cover"] else ""
+    return f"""<template id="m{n}"><div class="banner" style="{banner}"><button class="close" type="button" aria-label="Close">✕</button></div>
+<div class="dbody">{cover}<div class="dinfo"><h3>{html.escape(c["title"])}</h3>
+<div class="facts">{"".join(f"<span>{html.escape(str(x))}</span>" for x in facts)}</div><div class="facts">{genres}</div>
+<p class="desc">{html.escape(c["overview"])}</p><div class="actions">{actions}</div></div></div></template>"""
 
 
 # ---------- streaming pages: shared look (home, title pages) + the player ----------

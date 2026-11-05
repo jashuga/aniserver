@@ -80,6 +80,23 @@ class BatchFirst(unittest.TestCase):
         self.assertEqual(queries, ["Orb", "Chi. Chikyuu no Undou ni Tsuite"])
         self.assertEqual(sonarr.tvdb, 421583)                         # so Sonarr can place titles it can't match by name
 
+    def test_a_regular_show_is_searched_season_by_season_in_the_tv_categories(self):
+        parses = {"Orb.S01.1080p.WEB-DL.DDP5.1.H.264-NTb": parsed(SEASON1, score=1700)}
+        sonarr = FakeSonarr(parses)
+        series = sonarr("GET", "/series/5")
+        sonarr_standard = lambda method, path, body=None, timeout=60: (dict(series, seriesType="standard") if path == "/series/5"
+                                                                         else sonarr(method, path, body, timeout))
+        seen = []
+
+        def prowlarr(method, path, body=None, timeout=90):
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+            seen.append((q["query"][0], q["categories"][0]))
+            return [release(t) for t in parses]
+        with Patch(sonarr=sonarr_standard, prowlarr=prowlarr, GRAB_WAIT=0):
+            done = app.search_episodes(5, [e["id"] for e in SEASON1])
+        self.assertEqual(seen, [("Orb S01", "5000"), ("Chi. Chikyuu no Undou ni Tsuite S01", "5000")])
+        self.assertEqual(done["batches"], ["Orb.S01.1080p.WEB-DL.DDP5.1.H.264-NTb"])
+
     def test_a_turned_down_batch_is_followed_by_the_next_and_then_by_sonarrs_own_search(self):
         parses = {f"Orb S01 v{n}": parsed(SEASON1, score=900 - n) for n in range(6)}
         sonarr = FakeSonarr(parses, accept=lambda title: False)

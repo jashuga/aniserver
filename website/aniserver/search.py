@@ -16,6 +16,7 @@ BATCH_MIN = 3            # a season with at least this many episodes to fetch tr
 MAX_PUSHES = 4           # batches offered to Sonarr per season before falling back to its own search
 GRAB_WAIT = 20           # seconds for an accepted batch to show up in Sonarr's download queue
 ANIME_CATEGORY = 5070
+TV_CATEGORY = 5000       # every TV category (regular shows)
 
 
 def series_titles(series, limit=3):
@@ -29,12 +30,12 @@ def series_titles(series, limit=3):
     return out[:limit]
 
 
-def find_releases(titles):
-    """Torrents Prowlarr finds for any of the titles (all anime indexers at once), one entry per torrent."""
+def find_releases(titles, category=ANIME_CATEGORY):
+    """Torrents Prowlarr finds for any of the titles (all indexers at once), one entry per torrent."""
     def one(title):
         try:
             return prowlarr("GET", "/search?" + urllib.parse.urlencode(
-                {"query": title, "type": "search", "categories": ANIME_CATEGORY, "limit": 100}), timeout=60) or []
+                {"query": title, "type": "search", "categories": category, "limit": 100}), timeout=60) or []
         except Exception:
             return []
     found = {}
@@ -112,11 +113,20 @@ def started(series_id, before):
     return True
 
 
+def search_terms(series, wanted):
+    """Anime batches are found by title alone; a regular show's title alone is buried under single episodes, so
+    ask for each season ("Severance S02")."""
+    titles = series_titles(series)
+    if series.get("seriesType", "anime") == "anime":
+        return titles, ANIME_CATEGORY
+    return [f"{t} S{n:02d}" for t in titles[:2] for n in sorted(wanted)], TV_CATEGORY
+
+
 def grab_batches(series, wanted, done, log):
     """Push the best batches until every wanted season is covered. Returns the seasons now downloading as batches."""
     indexers = {i["name"].removesuffix(" (Prowlarr)"): i["name"] for i in sonarr("GET", "/indexer")
                 if i.get("enableAutomaticSearch", True)}
-    releases = [r for r in find_releases(series_titles(series)) if r.get("indexer") in indexers]
+    releases = [r for r in find_releases(*search_terms(series, wanted)) if r.get("indexer") in indexers]
     covered, tries = set(), Counter()
     for r, seasons in batch_candidates(series, wanted, releases):
         left = [n for n in seasons if n not in covered]
