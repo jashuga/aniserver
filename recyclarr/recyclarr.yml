@@ -21,9 +21,32 @@ sonarr:
         reset_unmatched_scores:
           enabled: true
 
+      # regular (non-anime) TV: TRaSH WEB-1080p, plus Blu-ray 1080p ranked above WEB and 720p as a
+      # last resort for older shows. The TV is 1080p, so no 4K (2026-11-05).
+      - trash_id: 72dae194fc92bf828f32cde7744e51a1  # WEB-1080p
+        name: TV 1080p
+        min_format_score: 0
+        upgrade:
+          allowed: true
+          until_quality: Bluray-1080p
+        qualities:
+          - name: Bluray-1080p
+          - name: WEB 1080p
+            qualities: [WEBDL-1080p, WEBRip-1080p]
+          - name: HDTV-1080p
+          - name: Bluray-720p
+          - name: WEB 720p
+            qualities: [WEBDL-720p, WEBRip-720p]
+          - name: HDTV-720p
+        reset_unmatched_scores:
+          enabled: true
+
     custom_format_groups:
       add:
         - trash_id: f54985e5e96747cef58731f1cf4c9181  # [Streaming Services] Anime
+        - trash_id: 158188097a58d7687dee647e04af0da3  # [Optional] Golden Rule HD
+        - trash_id: 85fae4a2294965b75710ef2989c850eb  # [Streaming Services] HD/UHD boost
+        - trash_id: 59c3af66780d08332fdc64e68297098f  # [Unwanted] Unwanted Formats
 
 radarr:
   anime-movies:
@@ -44,3 +67,15 @@ radarr:
         upgrade:
           allowed: true
           until_score: 1000
+
+      # regular (non-anime) movies: TRaSH HD Bluray + WEB (Blu-ray 1080p, then WEB 1080p, then Blu-ray 720p) (2026-11-05)
+      - trash_id: d1d67249d3890e49bc12e275d989a7e9  # HD Bluray + WEB
+        name: Movies 1080p
+        min_format_score: 0
+        reset_unmatched_scores:
+          enabled: true
+
+    custom_format_groups:
+      add:
+        - trash_id: f8bf8eab4617f12dfdbd16303d8da245  # [Optional] Golden Rule HD
+        - trash_id: a3ac6af01d78e4f21fcb75f601ac96df  # [Unwanted] Unwanted Formats
