@@ -85,6 +85,21 @@ def ensure_root_folder(url, key, ver, folder):
     return [str(folder)]
 
 
+def ensure_named_root(url, key, ver, folder, taken=()):
+    """The root folders named like `folder` (regular Movies / TV Shows), creating it if there's none. A folder already
+    used for anime (`taken`; older setups kept anime movies in "Movies") isn't reused: then it's "Films"."""
+    h = {"X-Api-Key": key}
+    same = [f["path"].rstrip("/") for f in http(f"{url}/api/{ver}/rootfolder", headers=h)
+            if Path(f["path"]).name == Path(folder).name and f["path"].rstrip("/") not in taken]
+    if same:
+        return same
+    if str(folder) in taken:
+        folder = Path(folder).with_name("Films")
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    http(f"{url}/api/{ver}/rootfolder", {"path": str(folder)}, h, "POST")
+    return [str(folder)]
+
+
 def ensure_download_client(url, key, ver, qbit_url, category):
     h = {"X-Api-Key": key}
     if http(f"{url}/api/{ver}/downloadclient", headers=h):
@@ -138,11 +153,12 @@ def jellyfin_api_key(url, token):
     return next(k["AccessToken"] for k in reversed(http(f"{url}/Auth/Keys", headers=h)["Items"]) if k.get("AppName") == "aniserver")
 
 
-def ensure_libraries(url, token, anime, movies):
+def ensure_libraries(url, token, anime, movies, films=(), shows=()):
     h = {"Authorization": f'{CLIENT}, Token="{token}"'}
     have = {v["Name"] for v in http(f"{url}/Library/VirtualFolders", headers=h)}
     added = []
-    for name, kind, folders in (("Anime", "tvshows", anime), ("Movies", "movies", movies)):
+    for name, kind, folders in (("Anime", "tvshows", anime), ("Anime Movies", "movies", movies),
+                                ("Movies", "movies", films), ("TV Shows", "tvshows", shows)):
         if folders and not have:                        # a fresh Jellyfin: one library each
             q = urllib.parse.urlencode({"name": name, "collectionType": kind, "refreshLibrary": "true"})
             http(f"{url}/Library/VirtualFolders?{q}", {"LibraryOptions": {"PathInfos": [{"Path": p} for p in folders]}}, h, "POST")
@@ -180,7 +196,8 @@ def build_config(old, found, people, public_host="", watch_host=""):
     for name in ("sonarr", "radarr", "prowlarr", "qbittorrent", "jellyfin", "kodi"):
         if f"{name}_url" in found:
             conf[f"{name}_url"] = found[f"{name}_url"]
-    for k in ("sonarr_key", "radarr_key", "prowlarr_key", "jellyfin_key", "kodi_password", "indexer_id", "anime_folders", "movie_folders"):
+    for k in ("sonarr_key", "radarr_key", "prowlarr_key", "jellyfin_key", "kodi_password", "indexer_id", "anime_folders", "movie_folders",
+              "film_folders", "tv_folders"):
         if found.get(k) not in (None, "", []):
             conf[k] = found[k]
     conf["manga"] = bool(found.get("prowlarr_key") and found.get("indexer_id"))
@@ -267,12 +284,14 @@ def main():
     found["jellyfin_url"] = jf
 
     print("\n3. Connecting them (only what's missing)")
-    for app, cat, sub in (("sonarr", "sonarr", "Anime"), ("radarr", "radarr", "Movies")):
+    for app, cat, sub, regular, kind in (("sonarr", "sonarr", "Anime", "TV Shows", "tv"), ("radarr", "radarr", "Anime Movies", "Movies", "film")):
         url, key = found[f"{app}_url"], found[f"{app}_key"]
-        found["anime_folders" if app == "sonarr" else "movie_folders"] = ensure_root_folder(url, key, "v3", MEDIA / sub)
+        found["anime_folders" if app == "sonarr" else "movie_folders"] = anime = ensure_root_folder(url, key, "v3", MEDIA / sub)
+        found[f"{kind}_folders"] = ensure_named_root(url, key, "v3", MEDIA / regular, taken=[p.rstrip("/") for p in anime])
         if ensure_download_client(url, key, "v3", qb, cat):
             print(f"  ✓ {app.title()} downloads with qBittorrent")
-    print(f"  ✓ media folders: anime {found['anime_folders']}, movies {found['movie_folders']}")
+    print(f"  ✓ media folders: anime {found['anime_folders']}, anime movies {found['movie_folders']}, "
+          f"movies {found['film_folders']}, TV {found['tv_folders']}")
     if found.get("prowlarr_key"):
         for name in ensure_prowlarr(found["prowlarr_url"], found["prowlarr_key"],
                                     [("Sonarr", found["sonarr_url"], found["sonarr_key"]), ("Radarr", found["radarr_url"], found["radarr_key"])]):
@@ -284,7 +303,7 @@ def main():
         print(f"  ✓ Jellyfin set up, with {owner} as its admin (same password)")
         token = jellyfin_token(jf, owner, pw)
         found["jellyfin_key"] = jellyfin_api_key(jf, token)
-        for name in ensure_libraries(jf, token, found["anime_folders"], found["movie_folders"]):
+        for name in ensure_libraries(jf, token, found["anime_folders"], found["movie_folders"], found["film_folders"], found["tv_folders"]):
             print(f"  ✓ Jellyfin library: {name}")
     else:
         found["jellyfin_key"] = jellyfin_key_from_admin(jf)

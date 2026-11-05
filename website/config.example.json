@@ -29,6 +29,14 @@
   "movie_folders": [
     "~/Media/Anime Movies"
   ],
+  "film_folders": [
+    "~/Media/Movies"
+  ],
+  "tv_folders": [
+    "~/Media/TV Shows"
+  ],
+  "film_profile": "Movies 1080p",
+  "show_profile": "TV 1080p",
   "manga_folder": "~/Media/Manga/Volumes",
   "manga": true,
   "komga_url": "http://localhost:25600",

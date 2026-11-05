@@ -1089,9 +1089,8 @@ placeholder="Search movies and TV: severance, dune, the office…" autocomplete=
         back = "/movies?" + urllib.parse.urlencode({"q": q}) if q else "/movies"
         try:
             if q:
-                films, shows = media.find_titles(q)
-                sections = [("Movies", films), ("TV shows", shows)]
-                if not films and not shows:
+                sections = media.find_titles(q)
+                if not any(cards for _, cards in sections):
                     return form + '<p class="muted">Nothing found. Try another spelling or a shorter name.</p>'
             else:
                 d = media.discover_cached()

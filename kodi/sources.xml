@@ -16,6 +16,18 @@
             <path pathversion="1">/mnt/media/Anime Movies/</path>
             <allowsharing>true</allowsharing>
         </source>
+        <source>
+            <name>Movies</name>
+            <path pathversion="1">/home/YOUR_USER/Media/Movies/</path>
+            <path pathversion="1">/mnt/media/Movies/</path>
+            <allowsharing>true</allowsharing>
+        </source>
+        <source>
+            <name>TV Shows</name>
+            <path pathversion="1">/home/YOUR_USER/Media/TV Shows/</path>
+            <path pathversion="1">/mnt/media/TV Shows/</path>
+            <allowsharing>true</allowsharing>
+        </source>
     </video>
     <music>
         <default pathversion="1"></default>

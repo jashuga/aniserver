@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Movies & TV page** for everything that isn't anime: search (Radarr/Sonarr's TMDB/TVDB lookup, the better-known
+  kind first), Trending / Popular / "because of what's in the library" rows from Radarr's discover lists (no TMDB key),
+  and anime found there points to the Anime page. Movies: **Add** or **Add & watch now on TV** (picks a release with
+  enough seeders to stay ahead of playback). Shows: all seasons, the latest season, or only new episodes.
+- **Regular TV gets season packs first**: the batch-first search asks for "Title S02" in Prowlarr's TV categories.
+- **Own folders, profiles and libraries**: `film_folders` / `tv_folders` (Movies, TV Shows), profiles `Movies 1080p`
+  (TRaSH HD Bluray + WEB) and `TV 1080p` (TRaSH WEB-1080p plus Blu-ray 1080p, 720p as a last resort) in
+  `recyclarr/recyclarr.yml`; the wizard creates the folders and Jellyfin libraries. The Sonarr add hook puts regular
+  shows in TV Shows with TV 1080p.
+
 ## v1.1.0 — 2026-11-03
 
 Easier to set up on your own machine, faster downloads, passkeys.

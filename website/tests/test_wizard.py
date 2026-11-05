@@ -24,12 +24,13 @@ class Wizard(unittest.TestCase):
             reachable=lambda url: not url.endswith("/jsonrpc"), arr_settings=lambda app_name: (None, f"key-{app_name.lower()}"),
             http=lambda url, data=None, headers=None, method=None, timeout=20: "v5.0",            # qBittorrent answers
             ensure_root_folder=lambda url, key, ver, folder: [str(folder)],
+            ensure_named_root=lambda url, key, ver, folder, taken=(): [str(folder)],
             ensure_download_client=lambda *a: calls.append(("download client", a[4])) or True,
             ensure_prowlarr=lambda url, key, apps: calls.append(("prowlarr", [a[0] for a in apps])) or ["Sonarr", "Radarr", "Nyaa.si"],
             nyaa_indexer=lambda url, key: 5,
             jellyfin_first_run=lambda url, user, pw: calls.append(("jellyfin admin", user, pw)) or True,
             jellyfin_token=lambda url, user, pw: "token", jellyfin_api_key=lambda url, token: "jf-key",
-            ensure_libraries=lambda url, token, anime, movies: calls.append(("libraries", anime, movies)) or ["Anime", "Movies"])
+            ensure_libraries=lambda url, token, *folders: calls.append(("libraries", *folders)) or ["Anime", "Movies"])
         with tempfile.TemporaryDirectory() as d:
             conf_file, users_file = Path(d) / "config.json", Path(d) / "remote-users.json"
             saved = {k: getattr(wizard, k) for k in [*fakes, "CONFIG_FILE", "MEDIA"]}
@@ -44,12 +45,13 @@ class Wizard(unittest.TestCase):
             self.assertIn(("download client", "sonarr"), calls)
             self.assertIn(("prowlarr", ["Sonarr", "Radarr"]), calls)
             self.assertIn(("jellyfin admin", "alice", "a long enough password"), calls)      # one password for both
-            self.assertIn(("libraries", ["/media/Anime"], ["/media/Movies"]), calls)
+            self.assertIn(("libraries", ["/media/Anime"], ["/media/Anime Movies"], ["/media/Movies"], ["/media/TV Shows"]), calls)
             conf = json.loads(conf_file.read_text())
             self.assertEqual(oct(conf_file.stat().st_mode & 0o777), "0o600")
             self.assertEqual((conf["sonarr_url"], conf["sonarr_key"], conf["radarr_key"], conf["jellyfin_key"]),
                              ("http://localhost:8989", "key-sonarr", "key-radarr", "jf-key"))
-            self.assertEqual((conf["anime_folders"], conf["movie_folders"]), (["/media/Anime"], ["/media/Movies"]))
+            self.assertEqual((conf["anime_folders"], conf["movie_folders"], conf["film_folders"], conf["tv_folders"]),
+                             (["/media/Anime"], ["/media/Anime Movies"], ["/media/Movies"], ["/media/TV Shows"]))
             self.assertEqual((conf["manga"], conf["indexer_id"], conf["kodi_url"]), (True, 5, ""))
             self.assertEqual(list(conf["profiles"]), ["alice", "bob", "carol"])
             self.assertEqual(len(conf["secret"]), 64)

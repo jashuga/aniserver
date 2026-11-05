@@ -1,6 +1,7 @@
 """Regular movies and TV (everything that isn't anime): found with Radarr's and Sonarr's own lookup (TMDB/TVDB),
 Radarr's discover lists for what's trending/popular (no TMDB key needed), and added with the regular profiles and
 folders. Anime found here is pointed to the Anime page, which knows its seasons and specials."""
+import re
 import threading
 import time
 import urllib.parse
@@ -36,7 +37,8 @@ def movie_card(x, library):
     released = bool(x.get("digitalRelease") or x.get("physicalRelease")) and min(
         d for d in (x.get("digitalRelease"), x.get("physicalRelease")) if d) <= time.strftime("%Y-%m-%dT%H:%M:%SZ")
     rating = (x.get("ratings") or {}).get("tmdb") or (x.get("ratings") or {}).get("imdb") or {}
-    return {"kind": "movie", "id": x.get("tmdbId"), "title": x.get("title") or "", "year": x.get("year") or "",
+    votes = max((r.get("votes") or 0) for r in (x.get("ratings") or {}).values() if isinstance(r, dict)) if x.get("ratings") else 0
+    return {"kind": "movie", "votes": votes, "id": x.get("tmdbId"), "title": x.get("title") or "", "year": x.get("year") or "",
             "poster": art_url(x, "poster", "w342"), "cover": art_url(x, "poster", "w500"), "fanart": art_url(x, "fanart", "w1280"),
             "overview": x.get("overview") or "", "genres": (x.get("genres") or [])[:4], "runtime": x.get("runtime") or 0,
             "rating": rating.get("value") or 0, "cert": x.get("certification") or "", "by": x.get("studio") or "",
@@ -49,7 +51,7 @@ def show_card(x, library):
     seasons = [s for s in x.get("seasons") or [] if s["seasonNumber"] > 0]
     rating = (x.get("ratings") or {}).get("value") or 0
     stats = (have or {}).get("statistics") or {}
-    return {"kind": "show", "id": x.get("tvdbId"), "title": x.get("title") or "", "year": x.get("year") or "",
+    return {"kind": "show", "votes": (x.get("ratings") or {}).get("votes") or 0, "id": x.get("tvdbId"), "title": x.get("title") or "", "year": x.get("year") or "",
             "poster": art_url(x, "poster", "w342"), "cover": art_url(x, "poster", "w500"), "fanart": art_url(x, "fanart", "w1280"),
             "overview": x.get("overview") or "", "genres": (x.get("genres") or [])[:4], "seasons": len(seasons),
             "rating": rating, "cert": x.get("certification") or "", "by": x.get("network") or "",
@@ -58,20 +60,34 @@ def show_card(x, library):
             "state": ("have" if stats.get("episodeFileCount") else "added") if have else "new"}
 
 
+def profile_id(api, name):
+    """The regular profile (set up by Recyclarr), or the stock HD-1080p one on a setup without it."""
+    profiles = {p["name"]: p["id"] for p in api("GET", "/qualityprofile")}
+    return profiles.get(name) or profiles.get("HD-1080p") or next(iter(profiles.values()))
+
+
 def libraries():
     return ({m["tmdbId"]: m for m in radarr("GET", "/movie")}, {s["tvdbId"]: s for s in sonarr("GET", "/series")})
 
 
 def find_titles(query):
-    """(movie cards, show cards) for a title, best matches first."""
+    """[(heading, cards)] for a title: movies and TV shows, best matches first, the kind whose top matches are
+    better known first ("the office" is the show; "dune" the movies). Entries nobody has rated or pictured are left out."""
     term = urllib.parse.quote(query)
     with ThreadPoolExecutor(4) as ex:
         movies = ex.submit(radarr, "GET", "/movie/lookup?term=" + term)
         shows = ex.submit(sonarr, "GET", "/series/lookup?term=" + term)
         lib = ex.submit(libraries)
         films, series = lib.result()
-        return ([movie_card(x, films) for x in (movies.result() or [])[:TITLE_RESULTS] if x.get("tmdbId")],
-                [show_card(x, series) for x in (shows.result() or [])[:TITLE_RESULTS] if x.get("tvdbId")])
+        keep = lambda c: c["id"] and (c["poster"] or c["votes"]) or c["state"] != "new"
+        found = [("Movies", [c for c in (movie_card(x, films) for x in movies.result() or []) if keep(c)][:TITLE_RESULTS]),
+                 ("TV shows", [c for c in (show_card(x, series) for x in shows.result() or []) if keep(c)][:TITLE_RESULTS])]
+    norm = lambda t: re.sub(r"[^a-z0-9]+", " ", t.lower()).strip()
+    q = norm(query)
+    for _, cards in found:     # titles that start with the search first, the best known of those on top
+        cards.sort(key=lambda c: (0, -c["votes"]) if norm(c["title"]).startswith(q) else (1, 0))
+    fame = lambda cards: max((c["votes"] for c in cards[:3]), default=0)
+    return sorted(found, key=lambda kv: -fame(kv[1]))
 
 
 def discover():
@@ -91,6 +107,8 @@ def discover():
             out["popular"].append(c)
         elif x.get("isRecommendation"):
             out["because"].append(c)
+    for cards in out.values():         # what can be watched now first
+        cards.sort(key=lambda c: not c["released"])
     return out
 
 
@@ -105,7 +123,7 @@ def add_movie(tmdb_id, user, watch=False):
     if existing:
         return existing["title"], "It's already in the library." + (" Play it from Home." if existing.get("hasFile") else "")
     mv = radarr("GET", f"/movie/lookup/tmdb?tmdbId={tmdb_id}")
-    profile = next(p["id"] for p in radarr("GET", "/qualityprofile") if p["name"] == FILM_PROFILE)
+    profile = profile_id(radarr, FILM_PROFILE)
     root, tags = drive_root(FILM_FOLDERS, radarr)
     watch = watch and TV
     mv.update(qualityProfileId=profile, rootFolderPath=root, monitored=True, minimumAvailability="released",
@@ -136,7 +154,8 @@ def watch_while_downloading(movie_id, user, log=print):
         radarr("POST", "/release", {"guid": rel["guid"], "indexerId": rel["indexerId"]})
         deadline = time.time() + QUEUE_WAIT
         while time.time() < deadline:
-            q = [x for x in radarr("GET", f"/queue?movieIds={movie_id}")["records"] if x.get("downloadId")]
+            q = [x for x in radarr("GET", f"/queue?movieIds={movie_id}")["records"]
+                 if x.get("movieId") == movie_id and x.get("downloadId")]
             if q:
                 watch_now(q[0]["downloadId"], user)
                 log(f"watch now: {rel['title']}")
@@ -154,7 +173,7 @@ def add_show(tvdb_id, mode):
     if existing:
         return existing["title"], "It's already in My Shows."
     s = sonarr("GET", f"/series/lookup?term=tvdb:{tvdb_id}")[0]
-    profile = next(p["id"] for p in sonarr("GET", "/qualityprofile") if p["name"] == SHOW_PROFILE)
+    profile = profile_id(sonarr, SHOW_PROFILE)
     root, tags = drive_root(TV_FOLDERS, sonarr)
     latest = max((x["seasonNumber"] for x in s["seasons"] if x["seasonNumber"] > 0), default=None)
     for x in s["seasons"]:
