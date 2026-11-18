@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Safety net (systemd htpc-watchdog.timer, every 15 minutes):
+- Media drives: a drive in /etc/fstab that a media folder lives on but isn't mounted gets one phone alert (a USB
+  drive that came loose for 20 seconds on 2026-11-10 stayed unmounted for a week; a udev rule now remounts it).
 - Services: Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin and the website must answer. User services that don't are
   restarted right away; anything still down after 20 minutes gets one phone alert with the command that fixes it.
 - A show with nothing monitored and nothing downloaded is switched back on to follow new episodes, with a phone alert
@@ -90,6 +92,33 @@ def check_services(state, now):
         if now - first >= 20 * 60 and f"svc:{name}" not in state["alerted"]:
             state["alerted"][f"svc:{name}"] = now
             push(f"{name} isn't responding", f"It has been down for {int((now - first) // 60)} minutes. Fix: ssh {USER}@{app.CONF.get('public_host') or 'this computer'} then run: {fix}")
+
+
+def fstab_mounts():
+    try:
+        lines = Path("/etc/fstab").read_text().splitlines()
+    except OSError:
+        return []
+    return [f.split()[1] for f in lines if f.strip() and not f.lstrip().startswith("#") and len(f.split()) > 1]
+
+
+def check_drives(state, now):
+    folders = [os.path.normpath(f) for f in app.ANIME_FOLDERS + app.MOVIE_FOLDERS + app.FILM_FOLDERS + app.TV_FOLDERS]
+    for mnt in fstab_mounts():
+        if mnt == "/" or not any(f == mnt or f.startswith(mnt.rstrip("/") + "/") for f in folders):
+            continue
+        key = f"drive:{mnt}"
+        if os.path.ismount(mnt):
+            if key in state["alerted"]:
+                log(f"{mnt} is mounted again")
+                state["alerted"].pop(key)
+            continue
+        log(f"{mnt} isn't mounted")
+        if key not in state["alerted"]:
+            state["alerted"][key] = now
+            push(f"The media drive at {mnt} isn't connected",
+                 f"Everything on it is unavailable and new downloads go to the internal drive. Check its USB cable; if it's "
+                 f"plugged in, ssh {USER}@{app.CONF.get('public_host') or 'this computer'} then run: sudo mount {mnt}")
 
 
 def push(title, message):
@@ -346,7 +375,7 @@ def main():
     state.setdefault("searched", {})
     state.setdefault("alerted", {})
     now = time.time()
-    for check in (check_services, check_shows, check_movies, check_stuck_imports, check_kodi, check_posters):
+    for check in (check_drives, check_services, check_shows, check_movies, check_stuck_imports, check_kodi, check_posters):
         try:
             check(state, now)
         except Exception as e:      # one service being down shouldn't stop the other check
