@@ -19,7 +19,10 @@
   update was skipped while a video was open - JoJo S06E04 stayed off the TV for half a day), every show folder gets a
   tvshow.nfo with its TVDB id so Kodi can't pick the wrong show by name, a wrong match is re-identified from it, and a
   show still missing after 3 scans gets one phone alert. Shows deleted from Sonarr whose folder is gone (with the drive
-  still there) are removed from Kodi - its own library clean leaves empty shows behind.
+  still there) are removed from Kodi - its own library clean leaves empty shows behind. Episodes/movies whose file is
+  gone but whose folder is still there (Sonarr/Radarr replaced it with a better copy under a new name) are removed
+  too, after their watched state and resume point are copied to the copy that replaced them (FMAB was listed twice
+  over after its Blu-ray upgrade, 2026-11-18).
 - Anime (Japanese original language in Sonarr/Radarr) get their poster and title logo in the language chosen on the
   website's Account page (Japanese key visuals or English), in Jellyfin (website, apps) and Kodi (TV).
 Usage: htpc-watchdog [--dry-run]"""
@@ -363,6 +366,33 @@ def check_kodi(state, now):
             kodi("VideoLibrary.Scan", {"directory": due[0][0], "showdialogs": False} if len(due) == 1 else {"showdialogs": False})
 
 
+def check_kodi_replaced(state, now):
+    """Entries for files Sonarr/Radarr replaced: copy watched state to the new file's entry, then remove them."""
+    try:
+        eps = kodi("VideoLibrary.GetEpisodes", {"properties": ["file", "tvshowid", "season", "episode", "playcount",
+                                                               "resume", "lastplayed", "showtitle"]}).get("episodes", [])
+        movies = kodi("VideoLibrary.GetMovies", {"properties": ["file", "imdbnumber", "playcount", "resume",
+                                                               "lastplayed"]}).get("movies", [])
+    except Exception:
+        return
+    gone = lambda x: not os.path.exists(x["file"]) and os.path.isdir(os.path.dirname(x["file"]))   # folder there: drive is mounted
+    kinds = (("episode", eps, lambda x: (x["tvshowid"], x["season"], x["episode"]), lambda x: f"{x['showtitle']} S{x['season']:02d}E{x['episode']:02d}"),
+             ("movie", movies, lambda x: (os.path.dirname(x["file"]), x["imdbnumber"]), lambda x: x["label"]))
+    for kind, items, key, name in kinds:
+        current = {key(x): x for x in items if os.path.exists(x["file"])}
+        for old in filter(gone, items):
+            new = current.get(key(old))
+            log(f"{name(old)}: its old file is gone, removing it from the TV (Kodi)" + (" after copying its watched state" if new else ""))
+            if DRY:
+                continue
+            if new and (old["playcount"] > new["playcount"] or old["resume"]["position"] > new["resume"]["position"]):
+                details = {"playcount": max(old["playcount"], new["playcount"]), "lastplayed": max(old["lastplayed"], new["lastplayed"])}
+                if old["resume"]["position"] > new["resume"]["position"] and not details["playcount"]:
+                    details["resume"] = {"position": old["resume"]["position"], "total": old["resume"]["total"]}
+                kodi(f"VideoLibrary.Set{kind.title()}Details", {f"{kind}id": new[f"{kind}id"], **details})
+            kodi(f"VideoLibrary.Remove{kind.title()}", {f"{kind}id": old[f"{kind}id"]})
+
+
 def check_posters(state, now):
     app.apply_anime_artwork(dry=DRY, log=log)          # anime posters + title logos in the language set on the Account page
 
@@ -375,7 +405,7 @@ def main():
     state.setdefault("searched", {})
     state.setdefault("alerted", {})
     now = time.time()
-    for check in (check_drives, check_services, check_shows, check_movies, check_stuck_imports, check_kodi, check_posters):
+    for check in (check_drives, check_services, check_shows, check_movies, check_stuck_imports, check_kodi, check_kodi_replaced, check_posters):
         try:
             check(state, now)
         except Exception as e:      # one service being down shouldn't stop the other check
