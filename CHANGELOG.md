@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Empty recycle bin** (Server page): deletes Sonarr/Radarr's recycle bin now instead of after 14 days, and stops
+  seeding torrents whose files only live on in the bin (an upgraded show's old copies), so the space is really freed.
+- **Watchdog**: downloads that haven't received anything for a day are removed, blocklisted and searched again;
+  LimeTorrents (setting `regular_tv_only_indexers`) is only used for regular TV, through a `regular-tv` tag in Sonarr
+  that every non-anime show gets.
 - **Cleaner look**: on phones the menu is a tab bar along the bottom (it used to run off the screen); Manga and
   Followed manga are one tab with Search / Followed inside; the owner's Server page is an icon by the avatar. My Shows
   shows how many shows and movies there are, titles aren't underlined, and Delete is a small icon in the corner.

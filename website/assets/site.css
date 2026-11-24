@@ -317,6 +317,7 @@ font-weight:600;opacity:0;transition:.25s;z-index:60;pointer-events:none;max-wid
 .drive.bad p{margin:6px 0 10px}
 .stuck{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line)}
 .stuck:first-of-type{border-top:0}.stuck .rel{font-size:12px;overflow-wrap:anywhere}
+.recycle{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px}.recycle .hint{margin:0;flex:1;min-width:220px}
 .wlog{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:0;font-size:13.5px;overflow-wrap:anywhere}
 .wlog li{padding:8px 0 8px 14px;border-left:2px solid var(--line);position:relative}.wlog li .muted{display:block;font-size:12px}
 .wlog li.alert{border-left-color:var(--warn)}.wlog li.alert .muted{color:var(--warn)}

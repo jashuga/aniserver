@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """Safety net (systemd htpc-watchdog.timer, every 15 minutes):
+- Downloads Sonarr/Radarr wait on that haven't received anything for a day (dead or fake torrents, like a "RARBG"
+  upload of an episode that hadn't aired) are removed and blocklisted, and Sonarr/Radarr search again.
+- General torrent sites (LIMITED_INDEXERS, e.g. LimeTorrents) are only used for regular TV: they carry the regular-tv
+  tag in Sonarr, as does every show that isn't anime (an indexer with a tag only serves shows with that tag).
 - Media drives: a drive in /etc/fstab that a media folder lives on but isn't mounted gets one phone alert (a USB
   drive that came loose for 20 seconds on 2026-11-10 stayed unmounted for a week; a udev rule now remounts it).
 - Services: Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin and the website must answer. User services that don't are
@@ -124,6 +128,42 @@ def check_drives(state, now):
                  f"plugged in, ssh {USER}@{app.CONF.get('public_host') or 'this computer'} then run: sudo mount {mnt}")
 
 
+DEAD_HOURS = 24
+REGULAR_TAG = "regular-tv"
+LIMITED_INDEXERS = app.CONF.get("regular_tv_only_indexers", ["LimeTorrents"])
+
+
+def check_dead_downloads(state, now):
+    for x in app.stuck_downloads(now):
+        if x["hours"] < DEAD_HOURS:
+            continue
+        log(f"{x['what']}: nothing received for {x['hours']} hours ({x['why']}), removing it so another copy is found ({x['title'][:90]})")
+        if not DRY:
+            app.replace_download(x["app"], x["id"])
+
+
+def check_indexer_tags(state, now):
+    tags = {t["label"]: t["id"] for t in app.sonarr("GET", "/tag")}
+    tag = tags.get(REGULAR_TAG)
+    if tag is None:
+        if DRY:
+            return
+        tag = app.sonarr("POST", "/tag", {"label": REGULAR_TAG})["id"]
+    for ix in app.sonarr("GET", "/indexer"):
+        if any(n.lower() in ix["name"].lower() for n in LIMITED_INDEXERS) and tag not in ix["tags"]:
+            log(f"{ix['name']}: only for regular TV from now on (tag {REGULAR_TAG} in Sonarr)")
+            if not DRY:
+                app.sonarr("PUT", f"/indexer/{ix['id']}?forceSave=true", dict(ix, tags=ix["tags"] + [tag]))
+    for s in app.sonarr("GET", "/series"):
+        regular = s.get("seriesType") != "anime" and not app.is_anime_title(s)
+        if regular != (tag in s["tags"]):
+            log(f"{s['title']}: {'adding' if regular else 'removing'} the {REGULAR_TAG} tag")
+            if not DRY:
+                full = app.sonarr("GET", f"/series/{s['id']}")
+                full["tags"] = full["tags"] + [tag] if regular else [t for t in full["tags"] if t != tag]
+                app.sonarr("PUT", f"/series/{s['id']}?moveFiles=false", full)
+
+
 def push(title, message):
     log(f"alert: {title} | {message}")
     if DRY or not TOPIC:
@@ -151,7 +191,8 @@ def check_shows(state, now):
         eps = app.sonarr("GET", f"/episode?seriesId={s['id']}")
         if eps and not any(e["monitored"] for e in eps) and not any(e["hasFile"] for e in eps):
             key = f"off:{s['id']}"
-            log(f"{s['title']}: nothing monitored, nothing downloaded -> following new episodes")
+            if key not in state["alerted"]:              # every 15 minutes otherwise, for a show with nothing left to air
+                log(f"{s['title']}: nothing monitored, nothing downloaded -> following new episodes")
             if not DRY:
                 app.follow_new_episodes(s["id"])
             if key not in state["alerted"]:
@@ -405,7 +446,7 @@ def main():
     state.setdefault("searched", {})
     state.setdefault("alerted", {})
     now = time.time()
-    for check in (check_drives, check_services, check_shows, check_movies, check_stuck_imports, check_kodi, check_kodi_replaced, check_posters):
+    for check in (check_drives, check_services, check_indexer_tags, check_dead_downloads, check_shows, check_movies, check_stuck_imports, check_kodi, check_kodi_replaced, check_posters):
         try:
             check(state, now)
         except Exception as e:      # one service being down shouldn't stop the other check

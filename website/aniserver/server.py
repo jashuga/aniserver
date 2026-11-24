@@ -550,13 +550,19 @@ internal drive. Check its USB cable, then:</p><form method="post" action="/serve
             used = 1 - d["free"] / d["total"] if d["total"] else 0
             drives += f"""<div class="drive{' low' if d['free'] < 30e9 else ''}"><div class="dhead"><b>{name}</b><span>{ops.size_text(d['free'])} free of {ops.size_text(d['total'])}</span></div>
 <div class="meter"><i style="width:{used:.0%}"></i></div></div>"""
-        if jobs["recycle"]:
-            drives += f'<p class="hint">{ops.size_text(jobs["recycle"])} of that is in the recycle bin (deleted titles and replaced files, emptied after 14 days).</p>'
+        total, freed = jobs["recycle"] or (0, 0)
+        if total:
+            ask = (f"Permanently delete everything in the recycle bin, and stop seeding the old copies that are only in it? "
+                   f"That frees about {ops.size_text(freed)}. This can't be undone.")
+            drives += f"""<div class="recycle"><p class="hint">Recycle bin: <b>{ops.size_text(total)}</b> of deleted titles and replaced files,
+emptied automatically after 14 days.{f" Emptying it now frees {ops.size_text(freed)} (the rest is still linked to the library)." if freed < total * .95 else ""}</p>
+<form method="post" action="/server/empty-recycle" onsubmit="return confirm({esc(json.dumps(ask))})"><button class="ghost small">Empty recycle bin</button></form></div>"""
         stuck = jobs["stuck"]
         if stuck is None:
             stuck_html = '<p class="muted">Couldn\'t check (Sonarr, Radarr or qBittorrent didn\'t answer).</p>'
         elif not stuck:
-            stuck_html = f'<p class="muted">Nothing stuck. (A download counts as stuck after {ops.STUCK_HOURS} hours without receiving anything.)</p>'
+            stuck_html = (f'<p class="muted">Nothing stuck. A download counts as stuck after {ops.STUCK_HOURS} hours without receiving anything; '
+                          'the watchdog replaces it by itself after a day.</p>')
         else:
             stuck_html = "".join(f"""<div class="stuck"><div><b>{esc(x['what'])}</b><div class="muted">{esc(x['why'])} · {x['hours'] // 24}d {x['hours'] % 24}h</div>
 <div class="muted rel">{esc(x['title'])}</div></div><form method="post" action="/server/replace"><input type="hidden" name="app" value="{x['app']}">
@@ -589,6 +595,8 @@ internal drive. Check its USB cable, then:</p><form method="post" action="/serve
             elif self.path == "/server/mount":
                 ops.mount_drive(f.get("path", ""))
                 err, ok = None, "Drive mounted. Sonarr, Radarr, Jellyfin and the TV see it again."
+            elif self.path == "/server/empty-recycle":
+                err, ok = None, f"Recycle bin emptied: {ops.size_text(ops.empty_recycle_bin())} freed."
             elif self.path == "/server/replace":
                 ops.replace_download(f.get("app", ""), f.get("id", "0"))
                 err, ok = None, f"Removed. {f.get('what') or 'It'} won't be picked again; another copy downloads when one is found."

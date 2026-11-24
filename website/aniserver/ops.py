@@ -22,6 +22,7 @@ OPS_SERVICES = [
     ("qBittorrent", lambda: qbit("/app/version", timeout=10), f"qbittorrent-nox@{USER}", True),
     ("Jellyfin", lambda: jellyfin("/System/Info/Public"), "jellyfin", False),
 ] + ([("TV (Kodi)", lambda: kodi_rpc("JSONRPC.Ping"), "kodi", False)] if TV else [])
+sleep = time.sleep
 STUCK_HOURS = 6           # a download that hasn't received anything for this long counts as stuck
 WATCHDOG_LOG = HOME / ".local/share/htpc-web/watchdog.log"
 WATCHDOG_STATE = HOME / ".local/share/htpc-web/watchdog.json"
@@ -81,15 +82,79 @@ def mount_drive(mnt):
         raise RuntimeError((r.stderr or r.stdout).strip()[:200] or "mount failed")
 
 
-def recycle_size():
-    total = 0
+def _recycle_inodes():
+    """{(device, inode): size} of the recycle bin's files, and its total size."""
+    out, total = {}, 0
     for root, _, files in os.walk(RECYCLE):
         for f in files:
             try:
-                total += os.lstat(os.path.join(root, f)).st_size
+                st = os.lstat(os.path.join(root, f))
             except OSError:
-                pass
-    return total
+                continue
+            out[(st.st_dev, st.st_ino)] = st
+            total += st.st_size
+    return out, total
+
+
+def recycle_only_torrents(inodes):
+    """Finished Sonarr/Radarr torrents still seeding files that are now only in the recycle bin (a copy that was
+    replaced or a title that was deleted): every video file is the torrent's copy plus the recycle bin's, nothing else.
+    [(hash, bytes)]."""
+    out = []
+    for t in qbit("/torrents/info") or []:
+        if (t.get("progress") or 0) < 1 or not t.get("category", "").startswith(("sonarr", "radarr")):
+            continue
+        cp = t.get("content_path") or ""
+        paths = [cp] if os.path.isfile(cp) else [os.path.join(r, f) for r, _, fs in os.walk(cp) for f in fs]
+        size, only_here = 0, bool(paths)
+        for path in paths:
+            try:
+                st = os.lstat(path)
+            except OSError:
+                only_here = False
+                break
+            if st.st_size < 50e6:                     # .nfo, samples, subtitles
+                continue
+            if (st.st_dev, st.st_ino) not in inodes or st.st_nlink != 2:
+                only_here = False
+                break
+            size += st.st_size
+        if only_here and size:
+            out.append((t["hash"], size))
+    return out
+
+
+def recycle_size():
+    """(bytes in the recycle bin, bytes emptying it frees): files also in a torrent that's still seeding count when
+    that torrent only seeds what's in the bin (it goes too); anything else still linked elsewhere frees nothing."""
+    inodes, total = _recycle_inodes()
+    seeding = {k for k, st in inodes.items() if st.st_nlink > 1}
+    freed = sum(st.st_size for st in inodes.values() if st.st_nlink == 1)
+    try:
+        freed += sum(size for _, size in recycle_only_torrents(inodes))
+    except Exception:
+        pass
+    return total, min(freed, total) if seeding else freed
+
+
+def empty_recycle_bin():
+    """Delete everything in Sonarr/Radarr's recycle bin now instead of after 14 days, and the torrents that were only
+    still seeding what's in it. Returns the bytes freed."""
+    bin_ = RECYCLE.resolve()
+    if bin_ in (Path("/"), HOME.resolve()) or not bin_.is_dir() or len(bin_.parts) < 3:
+        raise RuntimeError(f"refusing to empty {bin_}")
+    before = shutil.disk_usage(bin_).free
+    inodes, _ = _recycle_inodes()
+    hashes = [h for h, _ in recycle_only_torrents(inodes)]
+    if hashes:
+        qbit("/torrents/delete", {"hashes": "|".join(hashes), "deleteFiles": "true"})
+    for item in bin_.iterdir():
+        if item.is_dir() and not item.is_symlink():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+    sleep(2)                                         # qBittorrent deletes its files in the background
+    return max(shutil.disk_usage(bin_).free - before, 0)
 
 
 def stuck_downloads(now=None):

@@ -1,5 +1,7 @@
 """The owner's Server page (aniserver/ops.py): only the owner gets it, stuck downloads are found and replaced, the
 Jellyfin password rescue checks what it's given, and the watchdog's log is read back."""
+import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -98,6 +100,46 @@ class JellyfinRescue(unittest.TestCase):
         self.assertIsNotNone(ops.approve_quick_connect("alice", "12; DROP"))
         self.assertIsNone(ops.approve_quick_connect("alice", " 760 276 "))
         self.assertEqual(self.calls[-1][:2], ("POST", "/QuickConnect/Authorize?code=760276&userId=u1"))
+
+
+class RecycleBin(unittest.TestCase):
+    def test_emptying_frees_the_bin_and_the_torrents_that_only_seed_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            bin_, dl, lib = d / "Media/.recycle", d / "downloads", d / "Anime"
+            for f in (bin_ / "Old Show", dl / "old", dl / "kept", lib):
+                f.mkdir(parents=True)
+            big = b"x" * 60_000_000
+            (dl / "old/ep1.mkv").write_bytes(big)                          # replaced copy: torrent + recycle bin
+            os.link(dl / "old/ep1.mkv", bin_ / "Old Show/ep1.mkv")
+            (dl / "kept/ep2.mkv").write_bytes(big)                         # torrent + recycle bin + still in the library
+            os.link(dl / "kept/ep2.mkv", bin_ / "Old Show/ep2.mkv")
+            os.link(dl / "kept/ep2.mkv", lib / "ep2.mkv")
+            (bin_ / "deleted.mkv").write_bytes(b"y" * 1000)                # only in the bin
+            torrents = [{"hash": "old", "progress": 1, "category": "sonarr", "content_path": str(dl / "old")},
+                        {"hash": "kept", "progress": 1, "category": "sonarr", "content_path": str(dl / "kept")},
+                        {"hash": "manga", "progress": 1, "category": "manga", "content_path": str(dl / "old")}]
+            deleted = []
+
+            def qb(path, data=None, timeout=30):
+                if path == "/torrents/delete":
+                    deleted.append(data)
+                    for h in data["hashes"].split("|"):
+                        shutil.rmtree(dl / h)
+                    return None
+                return torrents
+            with Patch(qbit=qb, RECYCLE=bin_, HOME=d, sleep=lambda s: None):
+                total, freed = ops.recycle_size()
+                self.assertEqual((total, freed), (120_001_000, 60_001_000))
+                ops.empty_recycle_bin()
+            self.assertEqual(deleted, [{"hashes": "old", "deleteFiles": "true"}])
+            self.assertEqual(list(bin_.iterdir()), [])
+            self.assertTrue((lib / "ep2.mkv").exists() and (dl / "kept/ep2.mkv").exists())
+
+    def test_it_refuses_a_bin_that_is_home_or_root(self):
+        with Patch(RECYCLE=Path("/")):
+            with self.assertRaises(RuntimeError):
+                ops.empty_recycle_bin()
 
 
 class WatchdogLog(unittest.TestCase):
