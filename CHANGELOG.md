@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Cleaner look**: on phones the menu is a tab bar along the bottom (it used to run off the screen); Manga and
+  Followed manga are one tab with Search / Followed inside; the owner's Server page is an icon by the avatar. My Shows
+  shows how many shows and movies there are, titles aren't underlined, and Delete is a small icon in the corner.
+  Account and Server lay their cards out in two columns on wide screens; Server shows each service as a tile with a
+  status light and an "All running" / "N down" summary. One Jellyfin password card instead of two.
 - **Server page** (owner only, in the nav): every service up/down with a **Restart** button, the media drives
   (connected, space left, a **Mount** button when one isn't, what the recycle bin holds), downloads that haven't
   received anything for 6 hours with **Remove & find another** (blocklists that release; Sonarr/Radarr search again),

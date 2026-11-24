@@ -132,22 +132,38 @@ def is_public_host(host):
     return host in (CONF.get("public_host"), CONF.get("watch_host"))
 
 
-NAV = (("home", "/", "Home"), ("anime", "/anime", "Anime"), ("media", "/movies", "Movies & TV"), ("shows", "/shows", "My Shows"), ("search", "/manga", "Manga"),
-       ("follows", "/following", "Followed manga"), ("downloads", "/downloads", "Downloads"))
-NAV = tuple(n for n in NAV if MANGA or n[0] not in ("search", "follows"))      # manga is optional
+NAV = (("home", "/", "Home"), ("anime", "/anime", "Anime"), ("media", "/movies", "Movies & TV"), ("shows", "/shows", "My Shows"),
+       ("search", "/manga", "Manga"), ("downloads", "/downloads", "Downloads"))
+NAV = tuple(n for n in NAV if MANGA or n[0] != "search")      # manga is optional
+NAV_SHORT = {"media": "Movies", "shows": "My Shows"}            # labels in the phone's bottom tab bar
+_STROKE = '<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+NAV_ICONS = {
+    "home": '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+    "anime": '<path d="M12 3l2.4 5.6L20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4z"/>',
+    "media": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
+    "shows": '<path d="M6 3h12v18l-6-4-6 4z"/>',
+    "search": '<path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM8 7h8"/>',
+    "downloads": '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    "server": '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+}
+nav_icon = lambda key: _STROKE + NAV_ICONS[key] + "</svg>"
 
 
 def page(body, active="", host="", title="aniserver", full=False, user=None):
     h = html.escape(host)
-    items = NAV + ((("server", "/server", "Server"),) if user and user == OWNER else ())      # the owner's Server page
-    nav = "".join(f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>' for key, href, label in items)
+    active = "search" if active == "follows" else active               # Followed manga is part of the Manga tab
+    nav = "".join(f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>' for key, href, label in NAV)
+    tabbar = "".join(f'<a href="{href}" class="{"on" if key == active else ""}">{nav_icon(key)}<span>{NAV_SHORT.get(key, label)}</span></a>'
+                     for key, href, label in NAV)
     avatar = ""
     if user:
         name, color = PROFILES.get(user, (user.title(), "#888"))
         avatar = f'<a class="avatar" href="/account" title="{esc(name)} · account" style="background:{color}">{esc(name[0])}</a>'
-    tools = f'<div class="tools"><a class="iconlink" href="/anime" aria-label="Search anime" title="Search anime">{SEARCH_ICON}</a>{avatar}</div>'
+    server = (f'<a class="iconlink{" on" if active == "server" else ""}" href="/server" aria-label="Server" title="Server status">{nav_icon("server")}</a>'
+              if user and user == OWNER else "")                         # the owner's Server page
+    tools = f'<div class="tools"><a class="iconlink" href="/anime" aria-label="Search anime" title="Search anime">{SEARCH_ICON}</a>{server}{avatar}</div>'
     chrome = ("", "") if not active else (
-        f'<div class="top{" over" if full else ""}"><div class="in"><a class="brand" href="/"><i></i>{BRAND}</a><nav>{nav}</nav>{tools}</div></div>',
+        f'<div class="top{" over" if full else ""}"><div class="in"><a class="brand" href="/"><i></i>{BRAND}</a><nav>{nav}</nav>{tools}</div></div>\n<nav class="tabbar">{tabbar}</nav>',
         ("""<footer><a href="/logout" style="margin-left:auto">Log out</a></footer>""" if is_public_host(host) else
          f"""<footer><span>Open:</span><a href="http://{h}:8096" target="_blank" rel="noopener">Jellyfin ↗</a>
 <a href="http://{h}:25600" target="_blank" rel="noopener">Read manga (Komga) ↗</a>

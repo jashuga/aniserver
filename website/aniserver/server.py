@@ -481,12 +481,14 @@ class Handler(BaseHTTPRequestHandler):
                         body += f'<details><summary>All episodes ({len(c["files"])})</summary>{rows}</details>'
             out.append(f"""<div class="hcard{' focus' if focus and focus == c['title'] else ''}" id="card-{c['id']}">
 <img src="{html.escape(c['poster'])}" alt="" loading="lazy"><div class="info"><h3>{f'<a href="/title/{jf_ids[c["id"]]}">{html.escape(shown(c["title"], key=c["id"]))}</a>' if c["id"] in jf_ids else html.escape(shown(c['title'], key=c['id']))}{f' <span class="muted" style="font-weight:400">({c["year"]})</span>' if c['year'] else ''}</h3>
-{status}{body}<div class="hact">{delete_button(c, c["title"], round_btn=False)}</div></div></div>""")
+{status}{body}</div><div class="hact">{delete_button(c, c["title"])}</div></div>""")
         if focus:   # bring the just-added show to the top
             out.sort(key=lambda h: f'>{html.escape(focus)}' not in h and f'>{html.escape(focus)} <' not in h)
         refresh = '<meta http-equiv="refresh" content="15">' if busy or focus else ""
         empty = '<p class="muted">Nothing added yet. Find something on the <a href="/anime">Anime</a> tab.</p>'
-        return (f'{refresh}<a id="top"></a>{msg_html(qs)}<h2>My shows</h2>'
+        shows_n, movies_n = sum(c["kind"] != "movie" for c in cards), sum(c["kind"] == "movie" for c in cards)
+        count = f'<span class="muted">{shows_n} show{"s" * (shows_n != 1)} · {movies_n} movie{"s" * (movies_n != 1)}</span>' if cards else ""
+        return (f'{refresh}<a id="top"></a>{msg_html(qs)}<div class="pagehead"><h2>My shows</h2>{count}</div>'
                 f'<div class="hub">{"".join(out) if out else empty}</div>'
                 f'<p class="hint">{"Updates automatically every 15 seconds while something is searching or downloading. " if busy else ""}'
                 f'▶ Watch plays it right here{" · 📺 Play on TV starts it on the TV" if TV else ""}.</p>')
@@ -510,35 +512,33 @@ class Handler(BaseHTTPRequestHandler):
 <div><b>{esc(name)}</b><div class="muted">Signed in {where}</div></div></div>
 <div class="row"><a class="btn ghost" href="/logout">Log out</a></div></div>
 <div class="card acard"><h3>Website password</h3><p class="muted">For signing in to {esc(CONF.get("public_host") or "this website")} away from home.</p>{website}</div>
-<div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")} (user <b>{esc(self.user)}</b>).</p>
-<form method="post" action="/account/jellyfin" class="pwform">{field("current", "Current Jellyfin password", "current-password")}
-{field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}<button>Change Jellyfin password</button></form>
-<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.jellyfin_rescue_card()}{self.passkey_card()}{self.artwork_card()}</div>
+{self.jellyfin_card(field)}{self.passkey_card()}{self.artwork_card()}</div>
 <script src="{asset('passkeys.js')}" defer></script>"""
 
-    def jellyfin_rescue_card(self):
-        """Owner only: forgot the Jellyfin password? Signing in here already proved who you are."""
-        if self.user != OWNER:
-            return ""
-        field = lambda n, ph: f'<input type="password" name="{n}" placeholder="{ph}" autocomplete="new-password" minlength="12" required>'
-        return f"""<div class="card acard"><h3>Forgot your Jellyfin password?</h3>
-<p class="muted">Sign a Jellyfin app in without it: on the app's sign-in screen choose <b>Quick Connect</b> and type the code it shows here.</p>
-<form method="post" action="/account/quickconnect" class="pwform"><input type="text" name="code" placeholder="Quick Connect code" autocomplete="off"
-autocapitalize="characters" required><button>Approve</button></form>
-<p class="muted" style="margin-top:16px">Or set a new one without the old one:</p>
-<form method="post" action="/account/jellyfin-reset" class="pwform">{field("new", "New Jellyfin password (12+ characters)")}{field("repeat", "Repeat it")}
-<button>Set Jellyfin password</button></form></div>"""
+    def jellyfin_card(self, field):
+        """The Jellyfin password. The owner sets it without the old one (signing in here already proved who they are)
+        and can approve an app's Quick Connect code; everyone else confirms their current password."""
+        owner = self.user == OWNER
+        current = "" if owner else field("current", "Current Jellyfin password", "current-password")
+        quick = """<p class="muted" style="margin-top:18px">Or skip the password: in the Jellyfin app's sign-in screen choose
+<b>Quick Connect</b> and type the code it shows.</p><form method="post" action="/account/quickconnect" class="pwform">
+<input type="text" name="code" placeholder="Quick Connect code" autocomplete="off" autocapitalize="characters" required>
+<button>Approve</button></form>""" if owner else ""
+        return f"""<div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")}
+(user <b>{esc(self.user)}</b>).{" You don't need the old one." if owner else ""}</p>
+<form method="post" action="{"/account/jellyfin-reset" if owner else "/account/jellyfin"}" class="pwform">{current}
+{field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}<button>Set Jellyfin password</button></form>
+<p class="hint">Apps that are already signed in stay signed in.</p>{quick}</div>"""
 
     def server_page(self, qs):
         jobs = self.fetch_all(services=(ops.service_status,), drives=(ops.drives,), stuck=(ops.stuck_downloads,),
                               recycle=(ops.recycle_size,), activity=(ops.watchdog_activity,))
-        restart = lambda name: (f'<form method="post" action="/server/restart" class="inline"><input type="hidden" name="name" value="{esc(name)}">'
+        restart = lambda name: (f'<form method="post" action="/server/restart"><input type="hidden" name="name" value="{esc(name)}">'
                                 f'<button class="ghost small">Restart</button></form>')
-        UP, DOWN = '<span class="chip ok">Up</span>', '<span class="chip bad">Down</span>'
-        rows = "".join(f'<tr><td class="title"><b>{esc(n)}</b>{f"<div class=muted>{esc(d)}</div>" if d else ""}</td>'
-                       f'<td>{UP if ok else DOWN}</td><td class="act">{restart(n)}</td></tr>'
-                       for n, ok, d in jobs["services"] or [])
-        rows += f'<tr><td class="title"><b>Website</b><div class="muted">This page. It comes back in a few seconds.</div></td><td><span class="chip ok">Up</span></td><td class="act">{restart("Website")}</td></tr>'
+        tile = lambda name, ok, note: (f'<div class="svc{"" if ok else " down"}"><i></i><div><b>{esc(name)}</b>'
+                                       f'<span>{esc(note) if note else ("Running" if ok else "Not answering")}</span></div>{restart(name)}</div>')
+        rows = "".join(tile(n, ok, d) for n, ok, d in jobs["services"] or [])
+        rows += tile("Website", True, "This page. Back in a few seconds.")
         drives = ""
         for d in jobs["drives"] or []:
             name = "Internal drive" if d["path"] == "/" else f"External drive <span class=muted>({esc(d['path'])})</span>"
@@ -565,8 +565,10 @@ internal drive. Check its USB cable, then:</p><form method="post" action="/serve
         acts, last = jobs["activity"] or ([], None)
         ago = f"{int((time.time() - last) // 60)} minutes ago" if last else "never"
         log = "".join(f'<li class="{"alert" if a else ""}"><span class="muted">{esc(t)}</span> {esc(x)}</li>' for t, a, x in acts) or '<li class="muted">Nothing yet.</li>'
-        return f"""{msg_html(qs)}<h2>Server</h2><div class="srv">
-<div class="card acard"><h3>Services</h3><div class="scroll"><table><tbody>{rows}</tbody></table></div></div>
+        down = sum(not ok for _, ok, _ in jobs["services"] or [])
+        summary = (f'<span class="chip bad">{down} down</span>' if down else '<span class="chip ok">All running</span>')
+        return f"""{msg_html(qs)}<div class="pagehead"><h2>Server</h2>{summary}</div><div class="srv">
+<div class="card acard wide"><h3>Services</h3><div class="svcs">{rows}</div></div>
 <div class="card acard"><h3>Storage</h3>{drives}</div>
 <div class="card acard"><h3>Stuck downloads</h3>{stuck_html}</div>
 <div class="card acard"><h3>Watchdog</h3><p class="muted">Checks everything every 15 minutes and fixes what it can; last ran {ago}. Alerts (in orange) also go to your phone.</p>
@@ -1282,11 +1284,15 @@ the website asks for a username, the remote password set here, and a 6-digit cod
             return self.redirect("/security?ok=" + urllib.parse.quote(f"Remote login turned off for {u}."))
         return self.redirect("/security")
 
+    def manga_tabs(self, on):
+        tab = lambda href, label: f'<a href="{href}" class="{"on" if href == on else ""}">{label}</a>'
+        return f'<div class="subtabs">{tab("/manga", "Search")}{tab("/following", "Followed")}</div>'
+
     def search_page(self, qs):
         q = (qs.get("q") or [""])[0].strip()
         # hidden "0" + checkbox "1": the checkbox is ticked when any submitted value is "1"; default on
         digital = "1" in (qs.get("digital") or ["1"])
-        form = f"""{msg_html(qs)}
+        form = f"""{msg_html(qs)}{self.manga_tabs("/manga")}
 <form class="search" method="get" action="/manga" style="flex-wrap:wrap">
 <div class="bigsearch">{SEARCH_ICON}<input type="text" name="q" value="{html.escape(q)}" placeholder="Search manga by English title, e.g. Gachiakuta" {'' if q else 'autofocus'}></div>
 <button type="submit">Search</button>
@@ -1333,11 +1339,11 @@ the website asks for a username, the remote password set here, and a 6-digit cod
         except Exception as e:
             return f'<div class="msg err">Couldn\'t reach qBittorrent: {html.escape(str(e))}</div>'
         if not fl:
-            return msg_html(qs) + '<h2>Followed manga</h2><p class="muted">Not following anything yet. Use Follow next to a manga search result.</p>'
+            return msg_html(qs) + self.manga_tabs("/following") + '<p class="muted">Not following anything yet. Use Follow next to a manga search result.</p>'
         rows = "".join(f"""<tr><td class="title">{html.escape(f["series"])}</td><td>{html.escape(f["uploader"]) or '<span class="muted">any</span>'}</td>
 <td class="act"><form method="post" action="/unfollow"><input type="hidden" name="series" value="{html.escape(f["series"])}">
 <input type="hidden" name="back" value="/following"><button class="ghost small">Unfollow</button></form></td></tr>""" for f in fl)
-        return msg_html(qs) + f"""<h2>Followed manga</h2><div class="card scroll"><table><thead><tr><th>Series</th><th>Uploader</th><th></th></tr></thead>
+        return msg_html(qs) + self.manga_tabs("/following") + f"""<div class="card scroll"><table><thead><tr><th>Series</th><th>Uploader</th><th></th></tr></thead>
 <tbody>{rows}</tbody></table></div><p class="hint">New single volumes (e.g. “v13 … (Digital)”) are checked every hour and download automatically.</p>"""
 
 
