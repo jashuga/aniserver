@@ -19,6 +19,8 @@ and Kodi, running on one Ubuntu machine.
 - **Movies and TV too**: a Movies & TV page searches TMDB/TVDB through Radarr and Sonarr, shows what's trending and
   popular, and adds them with their own 1080p quality rules and folders. **Add & watch now** starts a movie on the TV
   while it downloads. Regular TV downloads whole seasons at a time, like anime batches.
+- **A Server page for the owner**: services with restart buttons, drive space (and a mount button if the USB drive
+  comes loose), stuck downloads with one-click replacement, and what the watchdog did lately.
 - **Watch on the TV while it downloads**, resume anywhere, skip openings, next episode, Continue on TV.
 - **A safety net** that fixes or reports what usually breaks: shows left with nothing to download, stuck or misread
   imports, the TV missing episodes or matching the wrong show, services that stop answering.

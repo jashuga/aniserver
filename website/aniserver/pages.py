@@ -8,7 +8,7 @@ import urllib.parse
 from collections import OrderedDict
 from pathlib import Path
 
-from aniserver.config import CONF, MANGA, PROFILES, TV
+from aniserver.config import CONF, MANGA, OWNER, PROFILES, TV
 from aniserver.anime import clean_description, title_of
 from aniserver.artwork import romaji_title
 
@@ -139,7 +139,8 @@ NAV = tuple(n for n in NAV if MANGA or n[0] not in ("search", "follows"))      #
 
 def page(body, active="", host="", title="aniserver", full=False, user=None):
     h = html.escape(host)
-    nav = "".join(f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>' for key, href, label in NAV)
+    items = NAV + ((("server", "/server", "Server"),) if user and user == OWNER else ())      # the owner's Server page
+    nav = "".join(f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>' for key, href, label in items)
     avatar = ""
     if user:
         name, color = PROFILES.get(user, (user.title(), "#888"))

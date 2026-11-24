@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Server page** (owner only, in the nav): every service up/down with a **Restart** button, the media drives
+  (connected, space left, a **Mount** button when one isn't, what the recycle bin holds), downloads that haven't
+  received anything for 6 hours with **Remove & find another** (blocklists that release; Sonarr/Radarr search again),
+  and the watchdog's latest actions and alerts.
+- **Forgot your Jellyfin password?** (owner, Account page): approve a Jellyfin app's Quick Connect code, or set a new
+  password without the old one, since signing in to the site already proved who you are.
+- **Watchdog**: a phone alert when a media drive in fstab isn't mounted; TV entries for files Sonarr/Radarr replaced
+  with a better copy are removed after their watched state is copied over.
 - **Movies & TV page** for everything that isn't anime: search (Radarr/Sonarr's TMDB/TVDB lookup, the better-known
   kind first), Trending / Popular / "because of what's in the library" rows from Radarr's discover lists (no TMDB key),
   and anime found there points to the Anime page. Movies: **Add** or **Add & watch now on TV** (picks a release with

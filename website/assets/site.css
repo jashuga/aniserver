@@ -282,3 +282,13 @@ font-weight:600;opacity:0;transition:.25s;z-index:60;pointer-events:none;max-wid
 .kicker{margin-bottom:8px}.meta{font-size:13px;gap:2px 8px}.hep{font-size:13.5px;margin-top:10px}.thero .ov{-webkit-line-clamp:3;font-size:14.5px}
 .hbtns{flex-wrap:nowrap;margin-top:16px}.hbtns .btn{flex:1;justify-content:center;padding:11px 12px;font-size:15px;min-width:0}
 .thero .hbtns .btn{flex:0 1 auto;padding:11px 22px}.rows{margin-top:0}.row h2{font-size:17px}}
+
+/* Server page (owner) */
+.srv{display:grid;gap:16px;max-width:760px}.chip.bad{background:var(--err);color:#fff}
+.drive{margin:12px 0}.drive .dhead{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.drive .meter{height:8px;border-radius:4px;background:var(--card2);overflow:hidden}.drive .meter i{display:block;height:100%;background:var(--ok)}
+.drive.low .meter i{background:var(--warn)}.drive.bad{padding:12px;border-radius:10px;background:color-mix(in srgb,var(--err) 18%,transparent)}
+.drive.bad p{margin:6px 0 10px}
+.stuck{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--card2)}
+.stuck:first-of-type{border-top:0}.stuck .rel{font-size:12px;overflow-wrap:anywhere}
+.wlog{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px;font-size:14px;overflow-wrap:anywhere}.wlog .alert{color:var(--warn)}

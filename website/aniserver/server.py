@@ -25,7 +25,7 @@ from aniserver.anime import anime_add, anime_search, movie_add, title_of, trendi
 from aniserver import media
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
 from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
-from aniserver import passkeys
+from aniserver import ops, passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, media_details_html, media_poster_html, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
@@ -182,6 +182,10 @@ class Handler(BaseHTTPRequestHandler):
                                       "home", self.host(), "aniserver · Not found", user=self.user), 404)
         if url.path == "/shows":
             return self.send(page(self.shows_page(qs), "shows", self.host(), "aniserver · My Shows", user=self.user))
+        if url.path == "/server":
+            if self.user != OWNER:
+                return self.send(page("<p>Not found.</p>", "anime", self.host()), 404)
+            return self.send(page(self.server_page(qs), "server", self.host(), "aniserver · Server", user=self.user))
         if url.path == "/security":
             if self.public() or self.user != OWNER:
                 return self.send(page("<p>Not found.</p>", "anime", self.host()), 404)
@@ -287,6 +291,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/account?ok=" + urllib.parse.quote("Passkey removed."))
         if self.path in ("/account/password", "/account/jellyfin"):
             return self.account_post(f)
+        if self.path.startswith("/server/") or self.path in ("/account/jellyfin-reset", "/account/quickconnect"):
+            if self.user != OWNER:
+                return self.redirect("/")
+            return self.server_post(f)
         if self.path.startswith("/security/"):
             if self.public() or self.user != OWNER:
                 return self.redirect("/anime")
@@ -505,8 +513,88 @@ class Handler(BaseHTTPRequestHandler):
 <div class="card acard"><h3>Jellyfin password</h3><p class="muted">For the Jellyfin apps and {esc(CONF.get("watch_host") or "Jellyfin in the browser")} (user <b>{esc(self.user)}</b>).</p>
 <form method="post" action="/account/jellyfin" class="pwform">{field("current", "Current Jellyfin password", "current-password")}
 {field("new", "New password (12+ characters)")}{field("repeat", "Repeat the new password")}<button>Change Jellyfin password</button></form>
-<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.passkey_card()}{self.artwork_card()}</div>
+<p class="hint">Apps that are already signed in stay signed in.</p></div>{self.jellyfin_rescue_card()}{self.passkey_card()}{self.artwork_card()}</div>
 <script src="{asset('passkeys.js')}" defer></script>"""
+
+    def jellyfin_rescue_card(self):
+        """Owner only: forgot the Jellyfin password? Signing in here already proved who you are."""
+        if self.user != OWNER:
+            return ""
+        field = lambda n, ph: f'<input type="password" name="{n}" placeholder="{ph}" autocomplete="new-password" minlength="12" required>'
+        return f"""<div class="card acard"><h3>Forgot your Jellyfin password?</h3>
+<p class="muted">Sign a Jellyfin app in without it: on the app's sign-in screen choose <b>Quick Connect</b> and type the code it shows here.</p>
+<form method="post" action="/account/quickconnect" class="pwform"><input type="text" name="code" placeholder="Quick Connect code" autocomplete="off"
+autocapitalize="characters" required><button>Approve</button></form>
+<p class="muted" style="margin-top:16px">Or set a new one without the old one:</p>
+<form method="post" action="/account/jellyfin-reset" class="pwform">{field("new", "New Jellyfin password (12+ characters)")}{field("repeat", "Repeat it")}
+<button>Set Jellyfin password</button></form></div>"""
+
+    def server_page(self, qs):
+        jobs = self.fetch_all(services=(ops.service_status,), drives=(ops.drives,), stuck=(ops.stuck_downloads,),
+                              recycle=(ops.recycle_size,), activity=(ops.watchdog_activity,))
+        restart = lambda name: (f'<form method="post" action="/server/restart" class="inline"><input type="hidden" name="name" value="{esc(name)}">'
+                                f'<button class="ghost small">Restart</button></form>')
+        UP, DOWN = '<span class="chip ok">Up</span>', '<span class="chip bad">Down</span>'
+        rows = "".join(f'<tr><td class="title"><b>{esc(n)}</b>{f"<div class=muted>{esc(d)}</div>" if d else ""}</td>'
+                       f'<td>{UP if ok else DOWN}</td><td class="act">{restart(n)}</td></tr>'
+                       for n, ok, d in jobs["services"] or [])
+        rows += f'<tr><td class="title"><b>Website</b><div class="muted">This page. It comes back in a few seconds.</div></td><td><span class="chip ok">Up</span></td><td class="act">{restart("Website")}</td></tr>'
+        drives = ""
+        for d in jobs["drives"] or []:
+            name = "Internal drive" if d["path"] == "/" else f"External drive <span class=muted>({esc(d['path'])})</span>"
+            if not d["mounted"]:
+                drives += f"""<div class="drive bad"><b>{name}</b><p>Not connected. Everything on it is unavailable, and new downloads go to the
+internal drive. Check its USB cable, then:</p><form method="post" action="/server/mount"><input type="hidden" name="path" value="{esc(d['path'])}">
+<button class="small">Mount it</button></form></div>"""
+                continue
+            used = 1 - d["free"] / d["total"] if d["total"] else 0
+            drives += f"""<div class="drive{' low' if d['free'] < 30e9 else ''}"><div class="dhead"><b>{name}</b><span>{ops.size_text(d['free'])} free of {ops.size_text(d['total'])}</span></div>
+<div class="meter"><i style="width:{used:.0%}"></i></div></div>"""
+        if jobs["recycle"]:
+            drives += f'<p class="hint">{ops.size_text(jobs["recycle"])} of that is in the recycle bin (deleted titles and replaced files, emptied after 14 days).</p>'
+        stuck = jobs["stuck"]
+        if stuck is None:
+            stuck_html = '<p class="muted">Couldn\'t check (Sonarr, Radarr or qBittorrent didn\'t answer).</p>'
+        elif not stuck:
+            stuck_html = f'<p class="muted">Nothing stuck. (A download counts as stuck after {ops.STUCK_HOURS} hours without receiving anything.)</p>'
+        else:
+            stuck_html = "".join(f"""<div class="stuck"><div><b>{esc(x['what'])}</b><div class="muted">{esc(x['why'])} · {x['hours'] // 24}d {x['hours'] % 24}h</div>
+<div class="muted rel">{esc(x['title'])}</div></div><form method="post" action="/server/replace"><input type="hidden" name="app" value="{x['app']}">
+<input type="hidden" name="id" value="{x['id']}"><input type="hidden" name="what" value="{esc(x['what'])}"><button class="small">Remove &amp; find another</button></form></div>"""
+                                 for x in stuck)
+        acts, last = jobs["activity"] or ([], None)
+        ago = f"{int((time.time() - last) // 60)} minutes ago" if last else "never"
+        log = "".join(f'<li class="{"alert" if a else ""}"><span class="muted">{esc(t)}</span> {esc(x)}</li>' for t, a, x in acts) or '<li class="muted">Nothing yet.</li>'
+        return f"""{msg_html(qs)}<h2>Server</h2><div class="srv">
+<div class="card acard"><h3>Services</h3><div class="scroll"><table><tbody>{rows}</tbody></table></div></div>
+<div class="card acard"><h3>Storage</h3>{drives}</div>
+<div class="card acard"><h3>Stuck downloads</h3>{stuck_html}</div>
+<div class="card acard"><h3>Watchdog</h3><p class="muted">Checks everything every 15 minutes and fixes what it can; last ran {ago}. Alerts (in orange) also go to your phone.</p>
+<ul class="wlog">{log}</ul></div></div>"""
+
+    def server_post(self, f):
+        back, ok = ("/account", None) if self.path.startswith("/account/") else ("/server", None)
+        try:
+            if self.path == "/account/quickconnect":
+                err = ops.approve_quick_connect(self.user, f.get("code", ""))
+                ok = "Approved. The Jellyfin app is signing in now."
+            elif self.path == "/account/jellyfin-reset":
+                err = ops.reset_jellyfin_password(self.user, f.get("new", ""), f.get("repeat", ""))
+                ok = "Jellyfin password set. Use it in the apps and on the Jellyfin website."
+            elif self.path == "/server/restart":
+                ops.restart_service(f.get("name", ""))
+                err, ok = None, f"{f.get('name')} restarted." if f.get("name") != "Website" else "The website is restarting. Reload in a few seconds."
+            elif self.path == "/server/mount":
+                ops.mount_drive(f.get("path", ""))
+                err, ok = None, "Drive mounted. Sonarr, Radarr, Jellyfin and the TV see it again."
+            elif self.path == "/server/replace":
+                ops.replace_download(f.get("app", ""), f.get("id", "0"))
+                err, ok = None, f"Removed. {f.get('what') or 'It'} won't be picked again; another copy downloads when one is found."
+            else:
+                return self.redirect("/server")
+        except Exception as e:
+            err = f"That didn't work: {e}"
+        return self.redirect(f"{back}?" + urllib.parse.urlencode({"err": err} if err else {"ok": ok}))
 
     def passkey_card(self):
         keys = (remote_users().get(self.user) or {}).get("passkeys") or []
