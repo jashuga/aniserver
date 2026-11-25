@@ -111,21 +111,6 @@ td.act{white-space:nowrap;text-align:right}
 td.act form{display:inline}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:90px}.bar>i{display:block;height:100%;background:var(--accent)}
 @media (max-width:560px){.top .tools{order:2}.top nav{order:3}.top .in{gap:4px;padding:10px 16px 6px}nav{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -4px}nav a{flex:none;padding:6px 11px}}
-.dlhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}.dlhead h2{margin-bottom:6px}
-.dlsec{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 10px}
-.dlc{display:flex;gap:14px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;align-items:flex-start}
-.dlc>img,.dlc .ph{width:56px;height:84px;border-radius:7px;object-fit:cover;flex:none;background:var(--card2);display:grid;place-items:center;font-size:24px}
-.dli{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-.dlt{display:flex;gap:10px;align-items:center;justify-content:space-between}.dlt span:first-child{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dlt a{text-decoration:none}.dlt a:hover{text-decoration:underline}
-.dls{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dlm{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;color:var(--muted);flex-wrap:wrap}
-.dlm b{color:var(--fg)}.dlm b.ok{color:var(--ok)}
-.dlc .bar{height:7px}
-.chip.st{background:var(--card2);color:var(--fg);flex:none}
-.s-downloading .chip.st{background:var(--accent);color:var(--accent-fg)}.s-ready .chip.st{background:var(--ok);color:#06210f}
-.s-importing .chip.st{background:#4f8cff;color:#fff}.s-error .chip.st,.s-blocked .chip.st{background:var(--err);color:#fff}
-.s-stalled .bar i,.s-queued .bar i,.s-paused .bar i{background:#6b6b78}
 .acct{display:grid;gap:16px;max-width:620px}.acard{padding:20px}.acard h3{margin:0 0 4px;font-size:17px}
 .acard .row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}.who1{display:flex;gap:14px;align-items:center}
 .avatar.big{width:52px;height:52px;border-radius:12px;font-size:24px}

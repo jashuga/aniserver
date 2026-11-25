@@ -27,7 +27,7 @@ from aniserver.manga import follow, follows, grab, parse_release, search, unfoll
 from aniserver.library import library_ids, _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
 from aniserver import ops, passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
-from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
+from aniserver.streaming import HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, media_details_html, media_poster_html, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
 
 # ---------- HTTP ----------
@@ -155,11 +155,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(page(self.account_page(qs), "account", self.host(), "aniserver · Account", user=self.user))
         if url.path == "/profiles":                       # old "Who's watching?" page: your login says who you are
             return self.redirect("/account")
-        if url.path == "/api/downloads":
-            try:
-                return self.send_json(live_downloads())
-            except Exception as e:
-                return self.send_json({"error": str(e)}, 502)
         m = re.fullmatch(r"/(title|watch|play|api/playinfo)/([0-9a-f]{32})", url.path)
         if m:
             kind, iid = m.groups()
@@ -1170,14 +1165,6 @@ id: location.pathname.split('/').pop(), msg: String(e.reason && (e.reason.stack 
                     return self.send_json({"ok": False, "msg": "Unknown title"}, 400)
                 title, size = delete_title(key, self.user)
                 return self.send_json({"ok": True, "msg": f"Deleted {title}" + (f" and freed {size / 1e9:.1f} GB." if size else ".")})
-            if self.path == "/api/watchnow":
-                if not re.fullmatch(r"[0-9a-fA-F]{40}", f.get("hash", "")):
-                    return self.send_json({"ok": False, "msg": "Unknown download"}, 400)
-                try:
-                    watch_now(f["hash"], self.user)
-                except ValueError as e:
-                    return self.send_json({"ok": False, "msg": str(e)})
-                return self.send_json({"ok": True, "msg": "Starting on the TV in a few seconds…"})
             if self.path == "/api/played":
                 set_played(self.user, iid, f.get("on") == "1")
                 return self.send_json({"ok": True})
@@ -1372,16 +1359,6 @@ the website asks for a username, the remote password set here, and a 6-digit cod
 <button class="ghost small" title="Auto-download new volumes of “{html.escape(series)}”{" from " + html.escape(uploader) if uploader else ""}">Follow</button></form></td></tr>""")
         return form + f"""<h2>Results for “{html.escape(q)}”</h2><div class="card scroll"><table><thead><tr><th>Release</th><th style="text-align:right">Size</th>
 <th style="text-align:right">Seeders</th><th style="text-align:right">Uploaded</th><th></th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>"""
-
-    def downloads_page(self, qs):
-        try:
-            data = live_downloads()
-        except Exception as e:
-            return f'<div class="msg err">Couldn\'t reach the downloader: {html.escape(str(e))}</div>'
-        js = json.dumps(data).replace("</", "<\\/")
-        return f"""{msg_html(qs)}<div class="dlhead"><h2>Downloads</h2><span class="muted" id="dlsum"></span></div>
-<div id="dl"></div><p class="hint">Live: updates every 2 seconds. Finished downloads stay listed for 3 days.</p>
-<script type="application/json" id="dldata">{js}</script><script src="{asset('downloads.js')}"></script>"""
 
     def follows_page(self, qs):
         try:

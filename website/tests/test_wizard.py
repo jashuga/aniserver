@@ -73,10 +73,6 @@ class OptionalParts(unittest.TestCase):
         self.assertIn("data-tv=", app.tv_button("x" * 32))
         with Patch(TV=False):
             self.assertEqual(app.tv_button("x" * 32), "")
-            with Patch(qbit_live=lambda: [], _download_names=lambda: ({}, {}, {})):
-                app._SWR.pop("dlnames", None)
-                self.assertIs(app.live_downloads()["tv"], False)          # the Downloads page hides "Watch now on TV"
-                app._SWR.pop("dlnames", None)
 
 
 if __name__ == "__main__":

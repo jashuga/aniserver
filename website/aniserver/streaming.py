@@ -5,10 +5,8 @@ import json
 import os
 import shutil
 import re
-import socket
 import struct
 import subprocess
-import threading
 import time
 import urllib.error
 import urllib.parse
@@ -358,89 +356,6 @@ def mpv_resume_at(path, seconds):
 
 
 FFPROBE = shutil.which("ffprobe") or str(Path.home() / ".local/opt/jellyfin-ffmpeg/ffprobe")   # system ffmpeg, else Jellyfin's
-VIDEO_FILES = (".mkv", ".mp4", ".m4v", ".avi", ".webm", ".ts")
-NOW_PLAYING_SOCK = f"/run/user/{os.getuid()}/mpv-now.sock"
-
-
-def watch_now(torrent_hash, user):
-    """Play a movie/episode on the TV while it's still downloading: qBittorrent fetches it in order from the start, mpv
-    plays the partial file once the first ~200 MB are there, and when mpv closes the spot is saved to the library copy
-    (the same file, hardlinked by Sonarr/Radarr). Raises ValueError with a message for things it can't play."""
-    h = torrent_hash.lower()
-    t = next((t for t in qbit("/torrents/info") or [] if t["hash"] == h), None)
-    if not t or t.get("category") not in ("sonarr", "sonarr-ssd", "radarr", "radarr-ssd"):
-        raise ValueError("That download isn't a show or a movie.")
-    files = [f for f in qbit(f"/torrents/files?hash={h}") or []
-             if f["name"].lower().endswith(VIDEO_FILES) and "sample" not in os.path.basename(f["name"]).lower()]
-    if len(files) != 1:
-        raise ValueError("This download is a batch of episodes. Play them from the library once it's finished.")
-    if not t.get("seq_dl"):                          # these are toggles: only flip what's still off
-        qbit("/torrents/toggleSequentialDownload", {"hashes": h})
-    if not t.get("f_l_piece_prio"):
-        qbit("/torrents/toggleFirstLastPiecePrio", {"hashes": h})
-    threading.Thread(target=_watch_now, args=(h, t["save_path"], files[0], user), daemon=True).start()
-
-
-def _mpv_prop(name):
-    s = socket.socket(socket.AF_UNIX)
-    s.settimeout(5)
-    s.connect(NOW_PLAYING_SOCK)
-    s.sendall((json.dumps({"command": ["get_property", name], "request_id": 1}) + "\n").encode())
-    buf = b""
-    while True:
-        chunk = s.recv(65536)
-        if not chunk:
-            raise OSError("mpv closed")
-        buf += chunk
-        *lines, buf = buf.split(b"\n")
-        for line in lines:
-            d = json.loads(line) if line.strip() else {}
-            if d.get("request_id") == 1:
-                s.close()
-                return d.get("data") if d.get("error") == "success" else None
-
-
-def _watch_now(h, save_path, f, user):
-    lo, hi = f["piece_range"]
-    need = max(1, int(200e6 // qbit(f"/torrents/properties?hash={h}")["piece_size"]))
-    t0 = time.time()
-    while time.time() - t0 < 900:                    # wait for the start of the file (and its end, where MKV keeps its index)
-        st = qbit(f"/torrents/pieceStates?hash={h}")
-        head = next((i for i in range(lo, hi + 1) if st[i] != 2), hi + 1) - lo
-        if (head >= need or head > hi - lo) and st[hi] == 2:
-            break
-        time.sleep(2)
-    else:
-        return
-    path = os.path.join(save_path, f["name"])
-    path = path + ".!qB" if not os.path.exists(path) and os.path.exists(path + ".!qB") else path
-    ident = (os.stat(path).st_dev, os.stat(path).st_ino)     # survives the rename and the hardlink into the library
-    subprocess.run(["systemctl", "--user", "stop", "htpc-now-playing"], capture_output=True, timeout=20)
-    subprocess.run(["systemd-run", "--user", "--unit=htpc-now-playing", "--collect", "/usr/bin/mpv", "--fs",
-                    f"--force-media-title={os.path.basename(f['name']).rsplit('.', 1)[0]}", f"--input-ipc-server={NOW_PLAYING_SOCK}", path],
-                   capture_output=True, timeout=20)
-    time.sleep(5)
-    pos = dur = None
-    while True:                                      # follow playback until mpv closes
-        try:
-            p, d = _mpv_prop("time-pos"), _mpv_prop("duration")
-            pos, dur = (p, d) if p is not None and d else (pos, dur)
-        except (OSError, ValueError):
-            break
-        time.sleep(5)
-    if pos is None or (pos < 30 and not (dur and pos / dur >= 0.9)):
-        return
-    played = bool(dur) and pos / dur >= 0.9
-    for _ in range(240):                             # the library copy appears once Sonarr/Radarr import it (up to ~2 h)
-        _JF_CACHE["t"] = 0
-        for lib_path, item in jf_maps()[0].items():
-            try:
-                if (os.stat(lib_path).st_dev, os.stat(lib_path).st_ino) == ident:    # TV history only (not the website's)
-                    mpv_resume_at(lib_path, 0 if played else pos)
-                    return
-            except OSError:
-                continue
-        time.sleep(30)
 
 
 def tv_play_item(user, item_id, pos=None):

@@ -155,7 +155,7 @@ class WatchingAnimeFirstEpisode(unittest.TestCase):
                 return {"records": [{"episodeId": 11, "downloadId": "ABC"}]}
             raise AssertionError(path)
         with Patch(sonarr=sonarr, search_later=lambda sid, ids=None: searched.append((sid, ids)),
-                   download_first=first.append, watch_now=lambda *a: self.fail("nothing starts playing by itself")):
+                   download_first=first.append):
             app.watch_first_episode(7, None, log=lambda m: None)
         return calls, searched, first
 

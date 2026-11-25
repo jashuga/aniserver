@@ -143,7 +143,6 @@ NAV_ICONS = {
     "media": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
     "shows": '<path d="M6 3h12v18l-6-4-6 4z"/>',
     "search": '<path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2zM8 7h8"/>',
-    "downloads": '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     "server": '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
 }
 nav_icon = lambda key: _STROKE + NAV_ICONS[key] + "</svg>"

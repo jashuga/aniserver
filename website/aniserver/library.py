@@ -117,7 +117,7 @@ def live_downloads():
                       "imported": imported.get(h), "release": t["name"]})
     order = {"downloading": 0, "stalled": 1, "finding": 1, "checking": 1, "queued": 2, "paused": 3, "error": 0, "importing": 4, "blocked": 4, "ready": 5}
     items.sort(key=lambda i: (order[i["state"]], -(i["finished"] or i["added"])))
-    return {"items": items, "speed": sum(i["speed"] for i in items), "now": now, "tv": TV}
+    return {"items": items, "speed": sum(i["speed"] for i in items), "now": now}
 SEARCH_COMMANDS = ("SeriesSearch", "SeasonSearch", "EpisodeSearch", "MissingEpisodeSearch", "MoviesSearch")
 
 

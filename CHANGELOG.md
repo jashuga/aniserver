@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the old Downloads page (its script, styles and /api/downloads) and "Watch now on TV" while downloading
+  (/api/watchnow); nothing linked to them any more.
 - **Add & watch for anime and movies**: adds it and downloads the first episode (a well-seeded single-episode
   release) or the movie first, in order, so it's playable within minutes, then searches the rest as usual. It no
   longer starts anything on the TV by itself: play it wherever you like.
