@@ -295,6 +295,16 @@ def poster_of(images):
     return next((i.get("remoteUrl") for i in images or [] if i.get("coverType") == "poster" and i.get("remoteUrl")), "")
 
 
+def library_ids():
+    """Jellyfin's item id for every title in the library, keyed s<tvdb> / m<tmdb>, so search results already in the
+    library can offer Play. Empty if Jellyfin can't be reached."""
+    try:
+        items = swr("libitems", 60, library_items, 3600)
+    except Exception:
+        return {}
+    return {provider_key(i): i["Id"] for i in items if provider_key(i)}
+
+
 def library_posters():
     """Jellyfin's poster for every title in the library, keyed s<tvdb> / m<tmdb>, so cards built from Sonarr/Radarr show
     the same artwork as the rest of the site (e.g. the Japanese anime posters). Empty if Jellyfin can't be reached."""

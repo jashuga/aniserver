@@ -24,7 +24,7 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver import media
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
-from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
+from aniserver.library import library_ids, _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
 from aniserver import ops, passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
@@ -479,17 +479,20 @@ class Handler(BaseHTTPRequestHandler):
                         rows = "".join(f'<div class="ep"><span class="n">{html.escape(e["label"])} · {html.escape(e["title"])}</span>'
                                        f'{self.watch_buttons(e["path"], c["title"] + " " + e["label"])}</div>' for e in reversed(c["files"]))
                         body += f'<details><summary>All episodes ({len(c["files"])})</summary>{rows}</details>'
-            out.append(f"""<div class="hcard{' focus' if focus and focus == c['title'] else ''}" id="card-{c['id']}">
+            q = html.escape(f"{c['title']} {shown(c['title'], key=c['id'])}".lower())
+            out.append(f"""<div class="hcard{' focus' if focus and focus == c['title'] else ''}" id="card-{c['id']}" data-q="{q}">
 <img src="{html.escape(c['poster'])}" alt="" loading="lazy"><div class="info"><h3>{f'<a href="/title/{jf_ids[c["id"]]}">{html.escape(shown(c["title"], key=c["id"]))}</a>' if c["id"] in jf_ids else html.escape(shown(c['title'], key=c['id']))}{f' <span class="muted" style="font-weight:400">({c["year"]})</span>' if c['year'] else ''}</h3>
 {status}{body}</div><div class="hact">{delete_button(c, c["title"])}</div></div>""")
         if focus:   # bring the just-added show to the top
             out.sort(key=lambda h: f'>{html.escape(focus)}' not in h and f'>{html.escape(focus)} <' not in h)
-        refresh = '<meta http-equiv="refresh" content="15">' if busy or focus else ""
+        refresh = '<div hidden data-refresh="15"></div>' if busy or focus else ""     # site.js: not while you're searching
         empty = '<p class="muted">Nothing added yet. Find something on the <a href="/anime">Anime</a> tab.</p>'
         shows_n, movies_n = sum(c["kind"] != "movie" for c in cards), sum(c["kind"] == "movie" for c in cards)
         count = f'<span class="muted">{shows_n} show{"s" * (shows_n != 1)} · {movies_n} movie{"s" * (movies_n != 1)}</span>' if cards else ""
-        return (f'{refresh}<a id="top"></a>{msg_html(qs)}<div class="pagehead"><h2>My shows</h2>{count}</div>'
-                f'<div class="hub">{"".join(out) if out else empty}</div>'
+        search = ('<input type="search" class="hsearch" placeholder="Search my shows" aria-label="Search my shows" autocomplete="off">'
+                  if len(cards) > 1 else "")
+        return (f'{refresh}<a id="top"></a>{msg_html(qs)}<div class="pagehead"><h2>My shows</h2>{count}{search}</div>'
+                f'<div class="hub">{"".join(out) if out else empty}</div><p class="muted hub-none" hidden>No shows match.</p>'
                 f'<p class="hint">{"Updates automatically every 15 seconds while something is searching or downloading. " if busy else ""}'
                 f'▶ Watch plays it right here{" · 📺 Play on TV starts it on the TV" if TV else ""}.</p>')
 
@@ -1173,6 +1176,9 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
         back = "/anime?" + urllib.parse.urlencode({"q": q}) if q else "/anime"
         heading = f"Results for “{html.escape(q)}”" if q else "Trending now"
         posters = "".join(poster_html(c, n) for n, c in enumerate(cards))
+        ids = library_ids()
+        for c in cards:
+            c["jf"] = ids.get(f"m{c['tmdb']}" if c["state"].startswith("movie") else f"s{c['tvdb']}")
         templates = "".join(details_html(c, n, back, self.host()) for n, c in enumerate(cards))
         return form + f'<h2>{heading}</h2><div class="posters">{posters}</div>{templates}'
 
@@ -1196,13 +1202,14 @@ placeholder="Search movies and TV: severance, dune, the office…" autocomplete=
                             ("Because of what's in the library", d["because"][:24])]
         except Exception as e:
             return form + f'<div class="msg err">Couldn\'t search right now: {html.escape(str(e))}</div>'
-        out, n = [], 0
+        out, n, ids = [], 0, library_ids()
         for heading, cards in sections:
             if not cards:
                 continue
             posters, templates = [], []
             for c in cards:
                 posters.append(media_poster_html(c, n))
+                c["jf"] = ids.get(("m" if c["kind"] == "movie" else "s") + str(c["id"]))
                 templates.append(media_details_html(c, n, back))
                 n += 1
             out.append(f'<h2>{html.escape(heading)}</h2><div class="posters">{"".join(posters)}</div>{"".join(templates)}')

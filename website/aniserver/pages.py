@@ -219,6 +219,15 @@ def poster_html(c, n):
 <div class="t">{html.escape(title_of(m))}</div><div class="m">{html.escape(sub)}</div></button>"""
 
 
+def play_links(jf, movie):
+    """Play (and the episode list) for a search result that's already in the library."""
+    if not jf:
+        return ""
+    if movie:
+        return f'<a class="btn" href="/watch/{jf}">{icon("play")}Play</a>'
+    return f'<a class="btn" href="/play/{jf}">{icon("play")}Play</a><a class="btn ghost" href="/title/{jf}">Episodes</a>'
+
+
 def details_html(c, n, back, host):
     m = c["m"]
     title, romaji = title_of(m), m["title"]["romaji"]
@@ -255,13 +264,14 @@ def details_html(c, n, back, host):
                    f'<input type="hidden" name="anilist" value="{m["id"]}"><input type="hidden" name="back" value="{html.escape(back)}">'
                    f'<button>Add movie</button></form>{note}')
     elif c["state"] == "movie_done":
-        actions = f'<span class="chip ok">In library</span><span class="muted">Downloaded · watch it in Kodi → Movies</span>{radarr_link}'
+        actions = (play_links(c.get("jf"), True) or '<span class="chip ok">In library</span>') + \
+            f'<span class="muted">Downloaded</span>{radarr_link}'
     elif c["state"] == "movie_added":
         actions = f'<span class="chip warn">Added</span><span class="muted">Searching / downloading</span>{radarr_link}'
     elif c["state"] == "have":
         stats = (si or {}).get("statistics") or (s.get("statistics") or {})
         got = f'{stats.get("episodeFileCount", 0)}/{stats.get("totalEpisodeCount") or stats.get("episodeCount", 0)} episodes downloaded'
-        actions = f'<span class="chip ok">In library</span><span class="muted">{got}</span>{sonarr_link}'
+        actions = (play_links(c.get("jf"), False) or '<span class="chip ok">In library</span>') + f'<span class="muted">{got}</span>{sonarr_link}'
     elif c["state"] == "season":
         actions = (f'<form method="post" action="/anime/add" data-busy>{hidden}'
                    f'<button name="mode" value="season">Add {html.escape(season_label(c).lower() or "this season")}</button></form>'
@@ -310,7 +320,8 @@ def media_details_html(c, n, back):
         actions = (f'<a class="btn" href="/anime?q={urllib.parse.quote(c["title"])}">Find it on the Anime page</a>'
                    '<span class="note">This is anime: the Anime page adds it with its seasons, specials and the anime quality rules.</span>')
     elif c["state"] == "have":
-        actions = f'<span class="chip ok">In library</span><span class="muted">{html.escape(c.get("got") or "Downloaded · play it from Home")}</span>'
+        actions = ((play_links(c.get("jf"), c["kind"] == "movie") or '<span class="chip ok">In library</span>') +
+                   f'<span class="muted">{html.escape(c.get("got") or "Downloaded")}</span>')
     elif c["state"] == "added":
         actions = f'<span class="chip warn">Added</span><span class="muted">{"Searching / downloading" if c["kind"] == "movie" else "Waiting for episodes"}</span>'
     elif c["kind"] == "movie":

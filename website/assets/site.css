@@ -72,6 +72,7 @@ width:36px;height:36px;padding:0;justify-content:center;font-size:18px}
 *{scrollbar-width:thin;scrollbar-color:#3a3a45 transparent}
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:14px;border-top:1px solid var(--line)}
 .actions form{display:contents}
+.actions .btn .ic{width:18px;height:18px}
 .note{font-size:13px;color:var(--muted);flex-basis:100%}
 @media (max-width:620px){.dbody{flex-direction:column;align-items:center;margin-top:-110px;padding:0 16px 20px}
 .dinfo{padding-top:0;text-align:left;width:100%}.dbody .cov{width:140px}}
@@ -210,7 +211,7 @@ color:#fff;padding:0;justify-content:center;opacity:0;transition:opacity .2s;z-i
 .ec:focus-visible .th,.pc:focus-visible .po{outline:2px solid #fff;outline-offset:2px}
 .pl{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity .2s;background:rgba(0,0,0,.28)}
 .pl span{width:52px;height:52px;border-radius:99px;background:rgba(255,255,255,.95);color:#000;display:grid;place-items:center;box-shadow:0 4px 18px rgba(0,0,0,.5)}
-.pl .ic{width:26px;height:26px;margin-left:3px}
+.pl .ic{width:26px;height:26px}
 .ec:hover .pl,.ec:focus-visible .pl,.er .th:hover .pl{opacity:1}
 .pbar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.28)}.pbar i{display:block;height:100%;background:var(--accent)}
 .th .tag{position:absolute;top:8px;left:8px}
@@ -285,6 +286,8 @@ font-weight:600;opacity:0;transition:.25s;z-index:60;pointer-events:none;max-wid
 
 /* page headers, sub-tabs */
 .pagehead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:6px 0 16px}.pagehead h2{margin:0}
+.hsearch{margin-left:auto;width:min(280px,100%);background:var(--card2);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit}
+.hub .hcard[hidden]{display:none}
 .subtabs{display:inline-flex;gap:2px;padding:3px;margin:4px 0 18px;background:var(--card);border:1px solid var(--line);border-radius:99px}
 .subtabs a{padding:6px 16px;border-radius:99px;text-decoration:none;color:var(--muted);font-weight:600;font-size:14px}
 .subtabs a.on{background:var(--card2);color:var(--fg)}.subtabs a:hover{color:var(--fg)}

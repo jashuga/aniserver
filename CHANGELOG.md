@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Play from search**: anime, movies and shows already downloaded get Play (and Episodes) buttons in their search
+  details instead of just "In library".
+- **Search My shows**: a box on My shows filters the cards as you type; the page's live refresh waits while you search.
+- The play button on episode thumbnails is centred (the icon was nudged right twice).
 - **Smoother adaptive player away from home**: it now keeps one quality per stream and drops a step only after real
   stalls. hls.js used to switch on its own every few seconds (it timed segments arriving at encode speed), and every
   switch started a new conversion on the server while the old ones kept running, so the player buffered constantly.

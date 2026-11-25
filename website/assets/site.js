@@ -117,6 +117,23 @@ document.addEventListener('click', async e => {
   const ov = e.target.closest('.thero .ov');
   if (ov) ov.classList.toggle('open');
 });
+// My shows: filter the cards as you type (kept across the page's own refreshes)
+const hs = document.querySelector('.hsearch');
+if (hs) {
+  const cards = [...document.querySelectorAll('.hub .hcard')], none = document.querySelector('.hub-none');
+  const apply = () => {
+    const q = hs.value.trim().toLowerCase(); let shown = 0;
+    for (const c of cards) { c.hidden = !!q && !c.dataset.q.includes(q); shown += !c.hidden; }
+    if (none) none.hidden = shown > 0;
+    try { sessionStorage.setItem('hsearch', hs.value); } catch (e) {}
+  };
+  try { hs.value = sessionStorage.getItem('hsearch') || ''; } catch (e) {}
+  hs.addEventListener('input', apply);
+  hs.addEventListener('keydown', e => { if (e.key === 'Escape') { hs.value = ''; apply(); } });
+  apply();
+}
+const rf = document.querySelector('[data-refresh]');      // live pages reload themselves, but not while you're typing
+if (rf) setInterval(() => { if (document.activeElement !== hs || !hs.value) location.reload(); }, rf.dataset.refresh * 1000);
 const hash = location.hash && document.querySelector(location.hash);
 if (hash) hash.scrollIntoView({block: 'center'});
 })();
