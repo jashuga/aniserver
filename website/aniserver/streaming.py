@@ -323,8 +323,10 @@ def set_played(user, item_id, on):
     jellyfin(f"/UserPlayedItems/{item_id}?userId={jf_uid(user)}", "POST" if on else "DELETE")
 
 
-def stop_transcode(dev, psid):
-    for sid in [psid] + [f"{psid}L{k}" for k in range(len(LADDER))]:
+def stop_transcode(dev, psid, level=None):
+    """Stop a stream's conversions: all of them, or just one adaptive quality level (after the player stepped down)."""
+    sids = [f"{psid}L{int(level)}"] if str(level).isdigit() else [psid] + [f"{psid}L{k}" for k in range(len(LADDER))]
+    for sid in sids:
         try:
             jellyfin("/Videos/ActiveEncodings?" + urllib.parse.urlencode({"deviceId": dev, "playSessionId": sid}), "DELETE")
         except Exception:

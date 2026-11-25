@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Smoother adaptive player away from home**: it now keeps one quality per stream and drops a step only after real
+  stalls. hls.js used to switch on its own every few seconds (it timed segments arriving at encode speed), and every
+  switch started a new conversion on the server while the old ones kept running, so the player buffered constantly.
+  Skips now take about 2 s and the buffer fills about 2.5× faster than real time.
 - **Empty recycle bin** (Server page): deletes Sonarr/Radarr's recycle bin now instead of after 14 days, and stops
   seeding torrents whose files only live on in the bin (an upgraded show's old copies), so the space is really freed.
 - **Watchdog**: downloads that haven't received anything for a day are removed, blocklisted and searched again;

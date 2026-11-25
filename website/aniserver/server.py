@@ -1124,7 +1124,7 @@ id: location.pathname.split('/').pop(), msg: String(e.reason && (e.reason.stack 
                              f"| {(self.headers.get('User-Agent') or '')[:120]}\n")
                 return self.send_json({"ok": True})
             if self.path == "/api/stop":
-                stop_transcode(f.get("d", ""), f.get("psid", ""))
+                stop_transcode(f.get("d", ""), f.get("psid", ""), f.get("level"))
                 return self.send_json({"ok": True})
             if self.path == "/api/delete":
                 key = f.get("key", "")

@@ -134,5 +134,16 @@ class FindingTitles(unittest.TestCase):
         self.assertNotIn("/media/addshow", html)
 
 
+class StoppingStreams(unittest.TestCase):
+    def test_stepping_down_stops_only_the_quality_left_behind(self):
+        stopped = []
+        with Patch(jellyfin=lambda path, method="GET", body=None: stopped.append(path.split("playSessionId=")[1])):
+            app.stop_transcode("dev", "abc", "2")
+            self.assertEqual(stopped, ["abcL2"])
+            stopped.clear()
+            app.stop_transcode("dev", "abc")
+        self.assertEqual(stopped, ["abc"] + [f"abcL{k}" for k in range(len(app.LADDER))])
+
+
 if __name__ == "__main__":
     unittest.main()

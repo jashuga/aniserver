@@ -179,7 +179,10 @@ async function load(at, play) {
         else fallback(d.details);
       });
       if (mode === 2) {
-        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (quality in LEVEL_FOR && hls) hls.currentLevel = hlsIndex(LEVEL_FOR[quality]); });
+        // one quality per stream: every level is its own live conversion on the server, so hls.js switching on its own
+        // (it times segments that arrive as fast as they're encoded, not as fast as the connection) restarted a
+        // conversion every few seconds and left the old ones running. monitor() steps down after real stalls instead.
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (hls) hls.currentLevel = startLevelFor(bw); });
         hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => { if (started) log('level', modeText()); });
       }
       hls.loadSource(url); hls.attachMedia(v);
@@ -206,11 +209,20 @@ function monitor() {
   }
   if (hls && hls.bandwidthEstimate > 0 && performance.now() - lastBwSave > 10000) { lastBwSave = performance.now(); bwPut(hls.bandwidthEstimate); }
   if (quality !== 'auto' || FORCE >= 0) return;
+  if (mode === 2 && hls && hls.currentLevel > 0 && recentStalls() >= 2) return levelDown();
   const ahead = bufferedAhead(), est = hls ? hls.bandwidthEstimate : 0, need = 1.15 * (info.peak || info.bitrate * 2.2);
   // step down instead of buffering: original file -> original via a big buffer -> adaptive quality
   if (mode === 0 && recentStalls() >= 1) return stepDown('stalled while direct playing');
   if (mode === 1 && (recentStalls() >= 2 || (NET === 'away' && ahead < 12 && est && est < need)))
     return stepDown('connection ' + mbps(est) + ' < needed ' + mbps(need) + ', ' + ahead.toFixed(0) + ' s buffered');
+}
+function levelDown() {             // adaptive: one quality lower, and stop the conversion we're leaving
+  const from = hls.currentLevel;
+  log('step-down', 'adaptive: stalled twice at ' + modeText());
+  stalls = [];
+  hls.currentLevel = from - 1;
+  navigator.sendBeacon('/api/stop', new URLSearchParams({d: dev, psid, level: hlsIndex(from)}));
+  toast('Adapting quality to your connection');
 }
 function stepDown(why) {
   log('step-down', MODES[mode] + ': ' + why);
