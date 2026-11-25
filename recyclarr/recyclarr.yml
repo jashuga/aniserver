@@ -8,6 +8,11 @@ sonarr:
     quality_definition:
       type: anime
 
+    # repacks only win when the quality rules (custom formats) say they're better; "prefer and upgrade" grabbed
+    # repacks worse than the episode already there, which then could never be imported
+    media_management:
+      propers_and_repacks: do_not_prefer
+
     quality_profiles:
       - trash_id: 20e0fc959f1f1704bed501f23bdae76f  # [Anime] Remux-1080p
         # accept good releases from groups TRaSH hasn't rated (score 0) when no rated one exists;
@@ -55,6 +60,11 @@ radarr:
 
     quality_definition:
       type: anime
+
+    # repacks only win when the quality rules (custom formats) say they're better; "prefer and upgrade" grabbed
+    # repacks worse than the episode already there, which then could never be imported
+    media_management:
+      propers_and_repacks: do_not_prefer
 
     quality_profiles:
       - trash_id: 722b624f9af1e492284c4bc842153a38  # [Anime] Remux-1080p
