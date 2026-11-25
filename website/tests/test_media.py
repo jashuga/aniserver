@@ -134,5 +134,20 @@ class FindingTitles(unittest.TestCase):
         self.assertNotIn("/media/addshow", html)
 
 
+class PlayingInJellyfin(unittest.TestCase):
+    def test_play_opens_the_title_in_jellyfins_own_player(self):
+        iid = "a" * 32
+        h = app.Handler.__new__(app.Handler)
+        h.path, h.headers, h.client_address = f"/watch/{iid}", {"Host": "10.0.0.5:5050"}, ("10.0.0.5", 1)
+        h.user = h.remote_user = "alice"
+        h.authed = lambda: True
+        sent = []
+        h.redirect = lambda to, cookie=None: sent.append(to)
+        h.send = lambda body, code=200, headers=None: sent.append(code)
+        with Patch(CONF={**app.CONF, "watch_host": "watch.example.com"}, _JF_SERVER_ID=["srv"]):
+            h.do_GET()
+        self.assertEqual(sent, [f"https://watch.example.com/web/#/details?id={iid}&serverId=srv"])
+
+
 if __name__ == "__main__":
     unittest.main()

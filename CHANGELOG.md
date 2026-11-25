@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Play opens Jellyfin**: Play and Resume buttons now open the episode or movie in Jellyfin's web app (its player
+  starts and seeks instantly) instead of the site's own player, which stays at `/watch/<id>?player=site`.
 - **Empty recycle bin** (Server page): deletes Sonarr/Radarr's recycle bin now instead of after 14 days, and stops
   seeding torrents whose files only live on in the bin (an upgraded show's old copies), so the space is really freed.
 - **Watchdog**: downloads that haven't received anything for a day are removed, blocklisted and searched again;

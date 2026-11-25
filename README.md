@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg) ![No dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
 
 A home anime server: new episodes download by themselves, play on the living-room TV, and stream anywhere through
-**aniserver**, a Netflix-style website with its own adaptive player. Built on Sonarr, Radarr, qBittorrent, Jellyfin
+**aniserver**, a Netflix-style website in front of Jellyfin. Built on Sonarr, Radarr, qBittorrent, Jellyfin
 and Kodi, running on one Ubuntu machine.
 
 | Show page | Browse | Downloads |
@@ -14,8 +14,8 @@ and Kodi, running on one Ubuntu machine.
 
 - **Add anime by the name people use** ("jjk", "re zero"). Seasons are matched to TVDB by air date, so split cours,
   continuing seasons and Netflix-first releases get the right episodes.
-- **A player that adapts to the connection**: direct play at home, the original repackaged, or a GPU-encoded quality
-  ladder away from home, with full-quality anime subtitles (ASS, the release's own fonts) in the browser.
+- **Play opens Jellyfin's own player** (at `watch_host`, or port 8096 without one), which starts and seeks instantly.
+  The site's experimental adaptive player is still at `/watch/<id>?player=site`.
 - **Movies and TV too**: a Movies & TV page searches TMDB/TVDB through Radarr and Sonarr, shows what's trending and
   popular, and adds them with their own 1080p quality rules and folders. **Add & watch now** starts a movie on the TV
   while it downloads. Regular TV downloads whole seasons at a time, like anime batches.
