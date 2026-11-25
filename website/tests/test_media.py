@@ -134,6 +134,49 @@ class FindingTitles(unittest.TestCase):
         self.assertNotIn("/media/addshow", html)
 
 
+class WatchingAnimeFirstEpisode(unittest.TestCase):
+    EPS = [{"id": 10, "seasonNumber": 0, "episodeNumber": 1, "monitored": True, "airDateUtc": "2020-01-01T00:00:00Z"},
+           {"id": 11, "seasonNumber": 1, "episodeNumber": 1, "monitored": True, "airDateUtc": "2020-01-01T00:00:00Z"},
+           {"id": 12, "seasonNumber": 1, "episodeNumber": 2, "monitored": True, "airDateUtc": "2020-01-08T00:00:00Z"},
+           {"id": 13, "seasonNumber": 1, "episodeNumber": 3, "monitored": True, "airDateUtc": "2099-01-01T00:00:00Z"}]
+
+    def run_it(self, releases, on_tv):
+        calls, searched, tv, qb = [], [], [], []
+
+        def sonarr(method, path, body=None, timeout=60):
+            calls.append((method, path.split("?")[0], body))
+            if path.startswith("/episode?"):
+                return self.EPS
+            if path.startswith("/release?"):
+                return releases
+            if method == "POST" and path == "/release":
+                return {}
+            if path.startswith("/queue?"):
+                return {"records": [{"episodeId": 11, "downloadId": "ABC"}]}
+            raise AssertionError(path)
+        with Patch(sonarr=sonarr, search_later=lambda sid, ids=None: searched.append((sid, ids)),
+                   watch_now=lambda h, user: tv.append((h, user)), qbit=lambda path, data=None, **k: qb.append(path) or []):
+            app.watch_first_episode(7, None, "alice", on_tv, log=lambda m: None)
+        return calls, searched, tv, qb
+
+    def test_episode_one_is_grabbed_alone_then_the_rest_is_searched(self):
+        rel = lambda title, seeders, full=False, eps=(1,): {"title": title, "seeders": seeders, "approved": True, "protocol": "torrent",
+                                                            "fullSeason": full, "episodeNumbers": list(eps), "guid": title, "indexerId": 1}
+        calls, searched, tv, qb = self.run_it([rel("batch", 500, full=True), rel("ep1", 40)], on_tv=True)
+        self.assertIn(("GET", "/release", None), calls)
+        self.assertIn(("POST", "/release", {"guid": "ep1", "indexerId": 1}), calls)       # the single episode, not the batch
+        self.assertEqual((tv, searched), ([("abc", "alice")], [(7, None)]))
+        calls, searched, tv, qb = self.run_it([rel("ep1", 40)], on_tv=False)             # away: fetched in order, played here
+        self.assertEqual(tv, [])
+        self.assertIn("/torrents/toggleSequentialDownload", qb)
+
+    def test_no_single_episode_release_leaves_it_to_the_normal_search(self):
+        calls, searched, tv, qb = self.run_it([{"title": "batch", "seeders": 9, "approved": True, "protocol": "torrent",
+                                                 "fullSeason": True}], on_tv=True)
+        self.assertNotIn("POST", [m for m, _, _ in calls])
+        self.assertEqual(searched, [(7, None)])
+
+
 class StoppingStreams(unittest.TestCase):
     def test_stepping_down_stops_only_the_quality_left_behind(self):
         stopped = []

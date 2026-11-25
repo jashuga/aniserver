@@ -133,7 +133,7 @@ def is_public_host(host):
 
 
 NAV = (("home", "/", "Home"), ("anime", "/anime", "Anime"), ("media", "/movies", "Movies & TV"), ("shows", "/shows", "My Shows"),
-       ("search", "/manga", "Manga"), ("downloads", "/downloads", "Downloads"))
+       ("search", "/manga", "Manga"))
 NAV = tuple(n for n in NAV if MANGA or n[0] != "search")      # manga is optional
 NAV_SHORT = {"media": "Movies", "shows": "My Shows"}            # labels in the phone's bottom tab bar
 _STROKE = '<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
@@ -228,7 +228,7 @@ def play_links(jf, movie):
     return f'<a class="btn" href="/play/{jf}">{icon("play")}Play</a><a class="btn ghost" href="/title/{jf}">Episodes</a>'
 
 
-def details_html(c, n, back, host):
+def details_html(c, n, back, host, tv=False):
     m = c["m"]
     title, romaji = title_of(m), m["title"]["romaji"]
     if getattr(VIEWER, "pick", "") == "japanese" and romaji:
@@ -284,6 +284,9 @@ def details_html(c, n, back, host):
         else:
             buttons.append('<button name="mode" value="all">Add all seasons</button>')
         buttons.append('<button class="ghost" name="mode" value="future">Only new episodes</button>')
+        if m.get("status") != "NOT_YET_RELEASED":           # something has aired: get episode 1 first and start it
+            buttons.insert(0, f'<button name="mode" value="watch">{icon("play")}Add &amp; watch{" on TV" if tv else ""}</button>')
+            buttons[1] = buttons[1].replace('<button name=', '<button class="ghost" name=', 1)
         note = "" if c["tvdb"] else '<span class="note">Not in the anime ID list yet; it will be matched by title.</span>'
         actions = f'<form method="post" action="/anime/add" data-busy>{hidden}{"".join(buttons)}</form>{note}'
     return f"""<template id="t{n}"><div class="banner" style="{banner}"><button class="close" type="button" aria-label="Close">✕</button></div>

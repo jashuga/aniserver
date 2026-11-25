@@ -19,6 +19,13 @@ from aniserver.manga import parse_release
 from aniserver.pages import img_url
 
 STUCK_IMPORTS = ("importBlocked", "importFailed")   # finished, but Sonarr/Radarr can't file it (htpc-watchdog clears or reports it)
+
+
+def import_stuck(r):
+    """A finished download Sonarr/Radarr won't file: blocked/failed, or left "pending" with a warning (e.g. a repack that
+    isn't better than the episode already in the library). It sits in the queue forever unless someone removes it."""
+    state = r.get("trackedDownloadState")
+    return state in STUCK_IMPORTS or (state == "importPending" and r.get("trackedDownloadStatus") == "warning")
 TORRENT_STATES = {   # qBittorrent state -> what the Downloads page says
     "downloading": "downloading", "forcedDL": "downloading", "stalledDL": "stalled", "metaDL": "finding", "forcedMetaDL": "finding",
     "queuedDL": "queued", "pausedDL": "paused", "stoppedDL": "paused", "checkingDL": "checking", "checkingResumeData": "checking",
@@ -42,7 +49,7 @@ def _download_names():
         if r.get("downloadId"):
             show(r, r.get("series") or {}, r.get("episode"))
             if r.get("trackedDownloadState") in ("importPending", "importing") + STUCK_IMPORTS:
-                pending[r["downloadId"].upper()] = "blocked" if r["trackedDownloadState"] in STUCK_IMPORTS else "importing"
+                pending[r["downloadId"].upper()] = "blocked" if import_stuck(r) else "importing"
     for r in sonarr("GET", "/history?pageSize=250&sortKey=date&sortDirection=descending&includeSeries=true&includeEpisode=true")["records"]:
         if r.get("downloadId") and r.get("eventType") in ("grabbed", "downloadFolderImported"):
             show(r, r.get("series") or {}, r.get("episode"))
@@ -57,7 +64,7 @@ def _download_names():
         if r.get("downloadId"):
             movie(r, r.get("movie") or {})
             if r.get("trackedDownloadState") in ("importPending", "importing") + STUCK_IMPORTS:
-                pending[r["downloadId"].upper()] = "blocked" if r["trackedDownloadState"] in STUCK_IMPORTS else "importing"
+                pending[r["downloadId"].upper()] = "blocked" if import_stuck(r) else "importing"
     for r in radarr("GET", "/history?pageSize=100&sortKey=date&sortDirection=descending&includeMovie=true")["records"]:
         if r.get("downloadId") and r.get("eventType") in ("grabbed", "downloadFolderImported"):
             movie(r, r.get("movie") or {})
@@ -349,7 +356,7 @@ def hub_cards(with_files=True):
         q = [r for r in queue if r.get("seriesId") == s["id"]]
         downloads = {}
         for r in q:
-            if r.get("trackedDownloadState") in STUCK_IMPORTS:
+            if import_stuck(r):
                 continue      # finished but Sonarr can't import it (e.g. an extra Blu-ray copy): not "downloading"
             d = downloads.setdefault(r.get("downloadId") or r["title"], {**queue_numbers(r, live), "eps": 0,
                                                                          "state": r.get("trackedDownloadState") or r.get("status")})
@@ -370,7 +377,7 @@ def hub_cards(with_files=True):
                       "files": eps, "missing": missing, "next": s.get("nextAiring"), "added": s.get("added") or "",
                       "status": s.get("status"), "size": st.get("sizeOnDisk") or 0, "count": st.get("episodeFileCount") or 0})
     for m in movies:
-        q = [r for r in mqueue if r.get("movieId") == m["id"] and r.get("trackedDownloadState") not in STUCK_IMPORTS]
+        q = [r for r in mqueue if r.get("movieId") == m["id"] and not import_stuck(r)]
         downloads = [{**queue_numbers(r, live), "eps": 1, "state": r.get("trackedDownloadState") or r.get("status")} for r in q]
         searching = any(m["id"] in ((c.get("body") or {}).get("movieIds") or []) for c in mcommands)
         files = [{"label": "Movie", "title": "", "path": m["movieFile"]["path"], "key": (0, 0)}] if m.get("hasFile") and m.get("movieFile") else []

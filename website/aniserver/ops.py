@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from aniserver.config import ANIME_FOLDERS, CONF, FILM_FOLDERS, HOME, JELLYFIN, MOVIE_FOLDERS, TV, TV_FOLDERS
+from aniserver.library import import_stuck
 from aniserver.services import jellyfin, kodi_rpc, prowlarr, qbit, radarr, sonarr
 
 USER = os.environ.get("USER") or HOME.name
@@ -170,6 +171,15 @@ def stuck_downloads(now=None):
         extra = "includeSeries=true&includeEpisode=true" if app == "sonarr" else "includeMovie=true"
         seen = set()
         for r in api("GET", f"/queue?pageSize=1000&{extra}")["records"]:
+            if import_stuck(r) and r.get("downloadId") not in seen:      # downloaded, but it can't be filed
+                seen.add(r.get("downloadId"))
+                msgs = [m for x in r.get("statusMessages") or [] for m in x.get("messages") or [] if "already imported" not in m]
+                have = (r.get("episode") or r.get("movie") or {}).get("hasFile")
+                out.append({"app": app, "id": r["id"], "title": r.get("title", ""), "what": what(r), "hours": None, "import": True,
+                            "have": bool(have), "why": "Downloaded, but it can't be added" + (
+                                ": it isn't better than the copy already in the library" if have and any("upgrade" in m for m in msgs)
+                                else f": {msgs[0][:160]}" if msgs else "")})
+                continue
             t = torrents.get((r.get("downloadId") or "").upper())
             if not t or t["hash"] in seen or (t.get("progress") or 0) >= 1:
                 continue
@@ -184,10 +194,11 @@ def stuck_downloads(now=None):
     return out
 
 
-def replace_download(app, queue_id):
-    """Remove a stuck download, blocklist that release so it isn't picked again, and let Sonarr/Radarr search again."""
+def replace_download(app, queue_id, search=True):
+    """Remove a stuck download, blocklist that release so it isn't picked again, and let Sonarr/Radarr search again
+    (search=False: the library already has that episode/movie, nothing to replace it with)."""
     api = {"sonarr": sonarr, "radarr": radarr}[app]
-    api("DELETE", f"/queue/{int(queue_id)}?removeFromClient=true&blocklist=true&skipRedownload=false")
+    api("DELETE", f"/queue/{int(queue_id)}?removeFromClient=true&blocklist=true&skipRedownload={'false' if search else 'true'}")
 
 
 def watchdog_activity(n=10):

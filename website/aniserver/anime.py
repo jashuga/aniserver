@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -359,7 +360,7 @@ def anilist_entry(anilist_id):
                    {"id": anilist_id})["Media"]
 
 
-def monitor_entry(series_id, media, season_hint=None):
+def monitor_entry(series_id, media, season_hint=None, after=None):
     """Monitor exactly the episodes of one AniList entry (matched by air date; the season number is only a fallback)
     and search the ones that have aired. Returns (description, aired count), or None if TVDB lists nothing for it yet."""
     for _ in range(20):  # a just-added show needs a few seconds for Sonarr to load its episode list
@@ -398,7 +399,7 @@ def monitor_entry(series_id, media, season_hint=None):
     now = time.time()
     aired = [e["id"] for e in picked if not e.get("hasFile") and air_time(e) is not None and air_time(e) <= now]
     if aired:
-        search_later(series_id, aired)                  # batches first (aniserver/search.py)
+        (after or search_later)(series_id, aired)       # batches first (aniserver/search.py)
     return describe_episodes(picked), len(aired)
 
 
@@ -414,9 +415,9 @@ def follow_new_episodes(series_id):
         sonarr("PUT", "/episode/monitor", {"episodeIds": future, "monitored": True})
 
 
-def entry_result(series_id, media, season):
+def entry_result(series_id, media, season, after=None):
     """Monitor one entry; if TVDB has nothing for it yet, keep the show following new episodes (never leave it off)."""
-    res = monitor_entry(series_id, media, season)
+    res = monitor_entry(series_id, media, season, after)
     if res is None:
         follow_new_episodes(series_id)
         return "- it isn't listed on TVDB yet, so new episodes will download as soon as they're listed."
@@ -425,8 +426,13 @@ def entry_result(series_id, media, season):
             f"{what}; episodes download as they air.")
 
 
-def anime_add(tvdb_id, anilist_id, season, mode):
-    """mode: 'season' (just that season), 'all' (every season), 'future' (only episodes that haven't aired)."""
+def anime_add(tvdb_id, anilist_id, season, mode, watch=None):
+    """mode: 'season' (just that season), 'all' (every season), 'future' (only episodes that haven't aired).
+    watch=(user, on_tv): the first wanted episode is fetched on its own first (started on the TV as it downloads, or
+    played from the website once it's in), then the rest is searched as usual."""
+    search = search_later
+    if watch and mode in ("season", "all"):
+        search = lambda sid, ids=None: threading.Thread(target=watch_first_episode, args=(sid, ids, *watch), daemon=True).start()
     if not tvdb_id:
         hit = resolve_via_relations([graphql("query($id:Int){Media(id:$id){id title{romaji english}}}",
                                              {"id": anilist_id})["Media"]], anilist_to_tvdb()).get(anilist_id)
@@ -438,7 +444,7 @@ def anime_add(tvdb_id, anilist_id, season, mode):
     existing = next((s for s in sonarr("GET", "/series") if s["tvdbId"] == tvdb_id), None)
     if existing:
         if mode == "season":
-            return existing["title"], entry_result(existing["id"], media, season)
+            return existing["title"], entry_result(existing["id"], media, season, search)
         return existing["title"], "It's already in Sonarr."
     s = sonarr("GET", f"/series/lookup?term=tvdb:{tvdb_id}")[0]
     profile = next(p["id"] for p in sonarr("GET", "/qualityprofile") if p["name"] == ANIME_PROFILE)
@@ -449,12 +455,67 @@ def anime_add(tvdb_id, anilist_id, season, mode):
              seasonFolder=True, addOptions={"monitor": monitor, "searchForMissingEpisodes": False})
     added = sonarr("POST", "/series", s)
     if mode == "all":
-        search_later(added["id"])                       # batches first, instead of Sonarr's episode-by-episode search
+        search(added["id"])                             # batches first, instead of Sonarr's episode-by-episode search
     if mode == "season":
-        return added["title"], "Added " + entry_result(added["id"], media, season)
+        return added["title"], "Added " + entry_result(added["id"], media, season, search)
     if mode == "future":
         return added["title"], "Added. New episodes will download as they air."
     return added["title"], "Added. Sonarr is searching for every episode now; downloads start within a few minutes."
+
+
+def watch_first_episode(series_id, episode_ids, user, on_tv, log=print):
+    """Grab the first wanted episode on its own (a single-episode release with enough seeders), have qBittorrent fetch it
+    in order, and start it on the TV if asked; then search the rest. Anything that goes wrong just leaves the normal
+    search to it."""
+    from aniserver.media import pick_for_watching           # imported here: media imports this module
+    from aniserver.streaming import watch_now
+    first = None
+    try:
+        for _ in range(20):                                   # a just-added show needs a moment for its episode list
+            eps = sonarr("GET", f"/episode?seriesId={series_id}")
+            if eps:
+                break
+            time.sleep(1.5)
+        now = time.time()
+        wanted = [e for e in eps if e["seasonNumber"] > 0 and not e.get("hasFile") and (e["id"] in episode_ids if episode_ids
+                  else e.get("monitored")) and air_time(e) is not None and air_time(e) <= now]
+        first = min(wanted, key=lambda e: (e["seasonNumber"], e["episodeNumber"]), default=None)
+        if not first:
+            return
+        rels = sonarr("GET", f"/release?episodeId={first['id']}", timeout=180) or []
+        rel = pick_for_watching([r for r in rels if not r.get("fullSeason") and len(r.get("episodeNumbers") or [first["episodeNumber"]]) == 1])
+        if not rel:
+            log(f"watch first: no single-episode release for series {series_id} S{first['seasonNumber']:02d}E{first['episodeNumber']:02d}")
+            first = None
+            return
+        sonarr("POST", "/release", {"guid": rel["guid"], "indexerId": rel["indexerId"]})
+        for _ in range(40):
+            q = [x for x in sonarr("GET", f"/queue?seriesIds={series_id}&pageSize=200")["records"]
+                 if x.get("episodeId") == first["id"] and x.get("downloadId")]
+            if q:
+                h = q[0]["downloadId"].lower()
+                if on_tv:
+                    watch_now(h, user)
+                else:                                         # in order from the start, ahead of everything else
+                    t = next(iter(qbit(f"/torrents/info?hashes={h}") or []), {})
+                    if not t.get("seq_dl"):                   # toggles: only flip what's still off
+                        qbit("/torrents/toggleSequentialDownload", {"hashes": h})
+                    if not t.get("f_l_piece_prio"):
+                        qbit("/torrents/toggleFirstLastPiecePrio", {"hashes": h})
+                    try:
+                        qbit("/torrents/topPrio", {"hashes": h})
+                    except Exception:
+                        pass                                  # queueing is off: nothing is waiting in front of it anyway
+                log(f"watch first: {rel['title']}")
+                return
+            time.sleep(3)
+        log(f"watch first: {rel['title']} didn't show up in the download queue")
+    except Exception as e:
+        log(f"watch first failed for series {series_id}: {e}")
+    finally:
+        rest = [i for i in (episode_ids or []) if not first or i != first["id"]]
+        if not episode_ids or rest:
+            search_later(series_id, rest or None)              # the rest, batches first
 
 
 def trending_cached():

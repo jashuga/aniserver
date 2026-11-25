@@ -67,6 +67,22 @@ class StuckDownloads(unittest.TestCase):
         self.assertIn("never started", found[0]["why"])
         self.assertIn("40%", found[1]["why"])
 
+    def test_a_finished_download_that_cant_be_filed_is_listed_for_removal(self):
+        queue = {"records": [{"id": 5, "downloadId": "EE", "title": "Show.S01E05.REPACK", "trackedDownloadState": "importPending",
+                              "trackedDownloadStatus": "warning", "series": {"title": "Show"},
+                              "episode": {"seasonNumber": 1, "episodeNumber": 5, "hasFile": True},
+                              "statusMessages": [{"messages": ["Not a Custom Format upgrade for existing episode file(s)."]}]},
+                             {"id": 6, "downloadId": "FF", "title": "Show.S01E06", "trackedDownloadState": "importPending",
+                              "trackedDownloadStatus": "ok", "series": {"title": "Show"}, "episode": {"seasonNumber": 1, "episodeNumber": 6}}]}
+        with Patch(qbit=lambda path, *a, **k: [], sonarr=lambda m, p, *a, **k: queue, radarr=lambda m, p, *a, **k: {"records": []}):
+            found = ops.stuck_downloads(NOW)
+        self.assertEqual([(x["id"], x["have"]) for x in found], [(5, True)])          # S01E06 is just importing
+        self.assertIn("isn't better", found[0]["why"])
+        calls = []
+        with Patch(sonarr=lambda m, p, *a, **k: calls.append(p)):
+            ops.replace_download("sonarr", "5", search=False)
+        self.assertTrue(calls[0].endswith("skipRedownload=true"))
+
     def test_replacing_blocklists_and_searches_again(self):
         calls = []
         with Patch(radarr=lambda m, p, *a, **k: calls.append((m, p))):

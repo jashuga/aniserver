@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Add & watch for anime**: adds the show, grabs the first episode on its own (a well-seeded single-episode
+  release, fetched in order), starts it on the TV at home or has it ready to play on the site within minutes away,
+  then searches the rest as usual.
+- **Downloading now** replaces the Downloads tab: a compact list at the top of My shows (progress, speed, time left,
+  and downloads that can't be added, with a link to fix them on the Server page). /downloads redirects there.
+- **Unfileable downloads are cleared**: a finished download Sonarr/Radarr leaves "pending" with a warning (e.g. a
+  repack that isn't better than the episode you have) is now treated as stuck: listed on the Server page with a
+  Remove button, and removed and blocklisted by the watchdog after 20 minutes.
 - **Play from search**: anime, movies and shows already downloaded get Play (and Episodes) buttons in their search
   details instead of just "In library".
 - **Search My shows**: a box on My shows filters the cards as you type; the page's live refresh waits while you search.

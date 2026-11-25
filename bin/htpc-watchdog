@@ -135,7 +135,7 @@ LIMITED_INDEXERS = app.CONF.get("regular_tv_only_indexers", ["LimeTorrents"])
 
 def check_dead_downloads(state, now):
     for x in app.stuck_downloads(now):
-        if x["hours"] < DEAD_HOURS:
+        if x.get("import") or x["hours"] < DEAD_HOURS:     # finished but unfiled: check_stuck_imports handles those
             continue
         log(f"{x['what']}: nothing received for {x['hours']} hours ({x['why']}), removing it so another copy is found ({x['title'][:90]})")
         if not DRY:
@@ -293,7 +293,7 @@ def check_stuck_imports(state, now):
     groups = {}
     for arr, api, extra in (("Sonarr", app.sonarr, "includeSeries=true&includeEpisode=true"), ("Radarr", app.radarr, "includeMovie=true")):
         for r in api("GET", f"/queue?pageSize=1000&{extra}")["records"]:
-            if r.get("trackedDownloadState") in app.STUCK_IMPORTS and r.get("downloadId"):
+            if app.import_stuck(r) and r.get("downloadId"):
                 groups.setdefault((arr, r["downloadId"]), []).append(r)
     for key in [k for k in first if tuple(k.split(":", 1)) not in groups]:
         first.pop(key)                                  # resolved on its own (or by hand)

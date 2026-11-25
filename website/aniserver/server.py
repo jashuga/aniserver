@@ -196,8 +196,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(page(self.anime_page(qs), "anime", self.host(), "aniserver · Anime", user=self.user))
         if url.path == "/movies":
             return self.send(page(self.media_page(qs), "media", self.host(), "aniserver · Movies & TV", user=self.user))
-        if url.path == "/downloads":
-            return self.send(page(self.downloads_page(qs), "downloads", self.host(), "aniserver · Downloads", user=self.user))
+        if url.path == "/downloads":                      # the Downloads tab became "Downloading now" on My shows
+            return self.redirect("/shows" + (f"?{url.query}" if url.query else "") + "#dl")
         if url.path == "/following":
             return self.send(page(self.follows_page(qs), "follows", self.host(), "aniserver · Followed manga", user=self.user))
         self.send(page("<p>Not found.</p>", "anime", self.host()), 404)
@@ -315,8 +315,14 @@ class Handler(BaseHTTPRequestHandler):
                 kodi_play(f["p"])
                 note = f"Playing on the TV: {f.get('label') or os.path.basename(f['p'])}"
             elif self.path == "/anime/add":
+                mode, watch = f.get("mode", "all"), None
+                if mode == "watch":       # add it like the main button would, and get the first episode first
+                    mode, watch = ("season" if f.get("season") else "all"), (self.user, TV and self.at_home())
                 title, result = anime_add(int(f["tvdb"]) if f.get("tvdb") else None, int(f.get("anilist") or 0),
-                                          int(f["season"]) if f.get("season") else None, f.get("mode", "all"))
+                                          int(f["season"]) if f.get("season") else None, mode, watch)
+                if watch:
+                    result += (" The first episode starts on the TV in a minute or two, while it downloads." if watch[1] else
+                               " The first episode downloads first: it's usually ready to play here within a few minutes.")
                 return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             elif self.path == "/anime/addmovie":
                 title, result = movie_add(int(f["tmdb"]) if f.get("tmdb") else None, int(f.get("anilist") or 0))
@@ -324,7 +330,7 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/media/addmovie":
                 watch = f.get("watch") == "1"
                 title, result = media.add_movie(int(f["id"]), self.user, watch)
-                to = "/downloads?" if watch else "/shows?"
+                to = "/shows?"
                 return self.redirect(to + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             elif self.path == "/media/addshow":
                 title, result = media.add_show(int(f["id"]), f.get("mode") if f.get("mode") in ("all", "latest", "future") else "all")
@@ -491,10 +497,37 @@ class Handler(BaseHTTPRequestHandler):
         count = f'<span class="muted">{shows_n} show{"s" * (shows_n != 1)} · {movies_n} movie{"s" * (movies_n != 1)}</span>' if cards else ""
         search = ('<input type="search" class="hsearch" placeholder="Search my shows" aria-label="Search my shows" autocomplete="off">'
                   if len(cards) > 1 else "")
-        return (f'{refresh}<a id="top"></a>{msg_html(qs)}<div class="pagehead"><h2>My shows</h2>{count}{search}</div>'
+        return (f'{refresh}<a id="top"></a>{msg_html(qs)}{self.downloading_now()}<div class="pagehead"><h2>My shows</h2>{count}{search}</div>'
                 f'<div class="hub">{"".join(out) if out else empty}</div><p class="muted hub-none" hidden>No shows match.</p>'
                 f'<p class="hint">{"Updates automatically every 15 seconds while something is searching or downloading. " if busy else ""}'
                 f'▶ Watch plays it right here{" · 📺 Play on TV starts it on the TV" if TV else ""}.</p>')
+
+    def downloading_now(self):
+        """What's downloading or waiting to be filed, as a compact list above My shows (was the Downloads tab)."""
+        try:
+            items = [i for i in live_downloads()["items"] if i["state"] != "ready"]
+        except Exception:
+            return ""
+        if not items:
+            return ""
+        label = {"stalled": "Waiting for peers", "finding": "Finding peers", "checking": "Checking", "queued": "Queued",
+                 "paused": "Paused", "error": "Error", "importing": "Adding to the library",
+                 "blocked": "Can't be added" + (' · <a href="/server">fix on Server</a>' if self.user == OWNER else "")}
+        rows = []
+        for i in items[:8]:
+            if i["state"] == "downloading":
+                eta = human_eta(i["eta"]) if i["eta"] else ""
+                line = f'{i["progress"]:.0%} · {fmt_size(i["speed"])}/s{" · " + eta if eta else ""}'
+            else:
+                line = label.get(i["state"], esc(i["state"].title())) + (f' · {i["progress"]:.0%}' if i["progress"] < 1 else "")
+            title = f'<a href="{esc(i["link"])}">{esc(i["title"])}</a>' if i["link"] else esc(i["title"])
+            thumb = f'<img src="{esc(i["poster"])}" alt="" loading="lazy">' if i["poster"] else "<i></i>"
+            rows.append(f'<div class="dlrow{" bad" if i["state"] in ("blocked", "error") else ""}">{thumb}<div class="dnt"><b>{title}</b>'
+                        f'<span class="muted">{esc(i["sub"])}</span></div><div class="dnp"><span>{line}</span>'
+                        f'<div class="bar"><i style="width:{i["progress"] * 100:.0f}%"></i></div></div></div>')
+        more = f'<p class="muted">and {len(items) - 8} more</p>' if len(items) > 8 else ""
+        return (f'<section class="dlnow" id="dl"><div class="pagehead"><h2>Downloading now</h2><span class="muted">{len(items)}</span></div>'
+                f'<div class="dllist">{"".join(rows)}</div>{more}</section>')
 
     # --- streaming: home, title pages, player ---
     def account_page(self, qs):
@@ -567,9 +600,10 @@ emptied automatically after 14 days.{f" Emptying it now frees {ops.size_text(fre
             stuck_html = (f'<p class="muted">Nothing stuck. A download counts as stuck after {ops.STUCK_HOURS} hours without receiving anything; '
                           'the watchdog replaces it by itself after a day.</p>')
         else:
-            stuck_html = "".join(f"""<div class="stuck"><div><b>{esc(x['what'])}</b><div class="muted">{esc(x['why'])} · {x['hours'] // 24}d {x['hours'] % 24}h</div>
+            stuck_html = "".join(f"""<div class="stuck"><div><b>{esc(x['what'])}</b><div class="muted">{esc(x['why'])}{f" · {x['hours'] // 24}d {x['hours'] % 24}h" if x['hours'] is not None else ""}</div>
 <div class="muted rel">{esc(x['title'])}</div></div><form method="post" action="/server/replace"><input type="hidden" name="app" value="{x['app']}">
-<input type="hidden" name="id" value="{x['id']}"><input type="hidden" name="what" value="{esc(x['what'])}"><button class="small">Remove &amp; find another</button></form></div>"""
+<input type="hidden" name="id" value="{x['id']}"><input type="hidden" name="what" value="{esc(x['what'])}"><input type="hidden" name="search" value="{0 if x.get('have') else 1}">
+<button class="small">{"Remove" if x.get("have") else "Remove &amp; find another"}</button></form></div>"""
                                  for x in stuck)
         acts, last = jobs["activity"] or ([], None)
         ago = f"{int((time.time() - last) // 60)} minutes ago" if last else "never"
@@ -601,8 +635,10 @@ emptied automatically after 14 days.{f" Emptying it now frees {ops.size_text(fre
             elif self.path == "/server/empty-recycle":
                 err, ok = None, f"Recycle bin emptied: {ops.size_text(ops.empty_recycle_bin())} freed."
             elif self.path == "/server/replace":
-                ops.replace_download(f.get("app", ""), f.get("id", "0"))
-                err, ok = None, f"Removed. {f.get('what') or 'It'} won't be picked again; another copy downloads when one is found."
+                search = f.get("search") != "0"
+                ops.replace_download(f.get("app", ""), f.get("id", "0"), search)
+                err, ok = None, (f"Removed. {f.get('what') or 'It'} won't be picked again; another copy downloads when one is found." if search
+                                 else f"Removed. The {f.get('what') or 'copy'} already in the library stays.")
             else:
                 return self.redirect("/server")
         except Exception as e:
@@ -1179,7 +1215,7 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
         ids = library_ids()
         for c in cards:
             c["jf"] = ids.get(f"m{c['tmdb']}" if c["state"].startswith("movie") else f"s{c['tvdb']}")
-        templates = "".join(details_html(c, n, back, self.host()) for n, c in enumerate(cards))
+        templates = "".join(details_html(c, n, back, self.host(), TV and self.at_home()) for n, c in enumerate(cards))
         return form + f'<h2>{heading}</h2><div class="posters">{posters}</div>{templates}'
 
     def media_page(self, qs):
