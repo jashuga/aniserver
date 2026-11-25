@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- **Add & watch for anime**: adds the show, grabs the first episode on its own (a well-seeded single-episode
-  release, fetched in order), starts it on the TV at home or has it ready to play on the site within minutes away,
-  then searches the rest as usual.
+- **Add & watch for anime and movies**: adds it and downloads the first episode (a well-seeded single-episode
+  release) or the movie first, in order, so it's playable within minutes, then searches the rest as usual. It no
+  longer starts anything on the TV by itself: play it wherever you like.
 - **Downloading now** replaces the Downloads tab: a compact list at the top of My shows (progress, speed, time left,
   and downloads that can't be added, with a link to fix them on the Server page). /downloads redirects there.
 - **Unfileable downloads are cleared**: a finished download Sonarr/Radarr leaves "pending" with a warning (e.g. a

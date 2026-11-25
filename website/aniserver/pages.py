@@ -228,7 +228,7 @@ def play_links(jf, movie):
     return f'<a class="btn" href="/play/{jf}">{icon("play")}Play</a><a class="btn ghost" href="/title/{jf}">Episodes</a>'
 
 
-def details_html(c, n, back, host, tv=False):
+def details_html(c, n, back, host):
     m = c["m"]
     title, romaji = title_of(m), m["title"]["romaji"]
     if getattr(VIEWER, "pick", "") == "japanese" and romaji:
@@ -285,7 +285,7 @@ def details_html(c, n, back, host, tv=False):
             buttons.append('<button name="mode" value="all">Add all seasons</button>')
         buttons.append('<button class="ghost" name="mode" value="future">Only new episodes</button>')
         if m.get("status") != "NOT_YET_RELEASED":           # something has aired: get episode 1 first and start it
-            buttons.insert(0, f'<button name="mode" value="watch">{icon("play")}Add &amp; watch{" on TV" if tv else ""}</button>')
+            buttons.insert(0, f'<button name="mode" value="watch">{icon("play")}Add &amp; watch</button>')
             buttons[1] = buttons[1].replace('<button name=', '<button class="ghost" name=', 1)
         note = "" if c["tvdb"] else '<span class="note">Not in the anime ID list yet; it will be matched by title.</span>'
         actions = f'<form method="post" action="/anime/add" data-busy>{hidden}{"".join(buttons)}</form>{note}'
@@ -328,7 +328,7 @@ def media_details_html(c, n, back):
     elif c["state"] == "added":
         actions = f'<span class="chip warn">Added</span><span class="muted">{"Searching / downloading" if c["kind"] == "movie" else "Waiting for episodes"}</span>'
     elif c["kind"] == "movie":
-        watch = ('<button name="watch" value="1">Add &amp; watch now on TV</button>' if TV and c["released"] else "")
+        watch = (f'<button name="watch" value="1">{icon("play")}Add &amp; watch</button>' if c["released"] else "")
         later = "" if c["released"] else '<span class="note">Not out on digital/Blu-ray yet: it downloads as soon as it is.</span>'
         plain = '<button class="ghost" name="watch" value="0">' if watch else '<button name="watch" value="0">'
         actions = f'<form method="post" action="/media/addmovie" data-busy>{hidden}{watch}{plain}Add movie</button></form>{later}'

@@ -315,14 +315,13 @@ class Handler(BaseHTTPRequestHandler):
                 kodi_play(f["p"])
                 note = f"Playing on the TV: {f.get('label') or os.path.basename(f['p'])}"
             elif self.path == "/anime/add":
-                mode, watch = f.get("mode", "all"), None
+                mode, watch = f.get("mode", "all"), False
                 if mode == "watch":       # add it like the main button would, and get the first episode first
-                    mode, watch = ("season" if f.get("season") else "all"), (self.user, TV and self.at_home())
+                    mode, watch = ("season" if f.get("season") else "all"), True
                 title, result = anime_add(int(f["tvdb"]) if f.get("tvdb") else None, int(f.get("anilist") or 0),
                                           int(f["season"]) if f.get("season") else None, mode, watch)
                 if watch:
-                    result += (" The first episode starts on the TV in a minute or two, while it downloads." if watch[1] else
-                               " The first episode downloads first: it's usually ready to play here within a few minutes.")
+                    result += " The first episode downloads first: it's usually ready to play within a few minutes."
                 return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             elif self.path == "/anime/addmovie":
                 title, result = movie_add(int(f["tmdb"]) if f.get("tmdb") else None, int(f.get("anilist") or 0))
@@ -1215,7 +1214,7 @@ placeholder="Search anime: re zero, jjk, frieren, fmab…" autocomplete="off" {'
         ids = library_ids()
         for c in cards:
             c["jf"] = ids.get(f"m{c['tmdb']}" if c["state"].startswith("movie") else f"s{c['tvdb']}")
-        templates = "".join(details_html(c, n, back, self.host(), TV and self.at_home()) for n, c in enumerate(cards))
+        templates = "".join(details_html(c, n, back, self.host()) for n, c in enumerate(cards))
         return form + f'<h2>{heading}</h2><div class="posters">{posters}</div>{templates}'
 
     def media_page(self, qs):

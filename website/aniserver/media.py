@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from aniserver.anime import drive_root
 from aniserver.config import CONF, FILM_FOLDERS, TV, TV_FOLDERS
 from aniserver.search import search_later
-from aniserver.services import radarr, sonarr, swr
+from aniserver.services import download_first, radarr, sonarr, swr
 
 FILM_PROFILE = CONF.get("film_profile", "Movies 1080p")       # TRaSH HD Bluray + WEB (via Recyclarr)
 SHOW_PROFILE = CONF.get("show_profile", "TV 1080p")           # TRaSH WEB-1080p + Blu-ray 1080p (via Recyclarr)
@@ -117,21 +117,21 @@ def discover_cached():
 
 
 def add_movie(tmdb_id, user, watch=False):
-    """Add a movie with the regular profile. watch=True picks a well-seeded release and starts it on the TV while it
-    downloads (in the background: the release search takes a little while). Returns (title, message)."""
+    """Add a movie with the regular profile. watch=True picks a well-seeded release and has it downloaded first, in
+    order, so it's playable within minutes (in the background: the release search takes a little while).
+    Returns (title, message)."""
     existing = next((x for x in radarr("GET", "/movie") if x["tmdbId"] == tmdb_id), None)
     if existing:
         return existing["title"], "It's already in the library." + (" Play it from Home." if existing.get("hasFile") else "")
     mv = radarr("GET", f"/movie/lookup/tmdb?tmdbId={tmdb_id}")
     profile = profile_id(radarr, FILM_PROFILE)
     root, tags = drive_root(FILM_FOLDERS, radarr)
-    watch = watch and TV
     mv.update(qualityProfileId=profile, rootFolderPath=root, monitored=True, minimumAvailability="released",
               tags=tags, addOptions={"searchForMovie": not watch, "monitor": "movieOnly"})
     added = radarr("POST", "/movie", mv)
     if watch:
         threading.Thread(target=watch_while_downloading, args=(added["id"], user), daemon=True).start()
-        return added["title"], "Added. Finding a well-seeded copy; it starts on the TV in a minute or two, while it downloads."
+        return added["title"], "Added. A well-seeded copy downloads first: it's usually ready to play within a few minutes."
     return added["title"], "Added. Radarr is downloading it now in the best quality it finds."
 
 
@@ -144,7 +144,7 @@ def pick_for_watching(releases):
 
 
 def watch_while_downloading(movie_id, user, log=print):
-    from aniserver.streaming import watch_now       # the TV side; imported here so this module loads without it
+    """Grab the best well-seeded release and have it downloaded first, in order."""
     try:
         rel = pick_for_watching(radarr("GET", f"/release?movieId={movie_id}", timeout=180) or [])
         if not rel:
@@ -157,7 +157,7 @@ def watch_while_downloading(movie_id, user, log=print):
             q = [x for x in radarr("GET", f"/queue?movieIds={movie_id}")["records"]
                  if x.get("movieId") == movie_id and x.get("downloadId")]
             if q:
-                watch_now(q[0]["downloadId"], user)
+                download_first(q[0]["downloadId"])
                 log(f"watch now: {rel['title']}")
                 return
             time.sleep(3)

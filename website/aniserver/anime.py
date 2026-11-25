@@ -14,7 +14,7 @@ from pathlib import Path
 
 from aniserver.config import INTERNAL_ROOT, MOVIE_ROOT_INTERNAL, MOVIE_ROOT_SSD, UA
 from aniserver.search import search_later
-from aniserver.services import graphql, qbit, radarr, sonarr, swr
+from aniserver.services import download_first, graphql, qbit, radarr, sonarr, swr
 
 MAPPING_URL = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json"
 MAPPING_FILE = Path.home() / ".cache/htpc/anime-list-full.json"
@@ -426,13 +426,12 @@ def entry_result(series_id, media, season, after=None):
             f"{what}; episodes download as they air.")
 
 
-def anime_add(tvdb_id, anilist_id, season, mode, watch=None):
+def anime_add(tvdb_id, anilist_id, season, mode, watch=False):
     """mode: 'season' (just that season), 'all' (every season), 'future' (only episodes that haven't aired).
-    watch=(user, on_tv): the first wanted episode is fetched on its own first (started on the TV as it downloads, or
-    played from the website once it's in), then the rest is searched as usual."""
+    watch: the first wanted episode is fetched on its own first, so it's playable within minutes; then the rest."""
     search = search_later
     if watch and mode in ("season", "all"):
-        search = lambda sid, ids=None: threading.Thread(target=watch_first_episode, args=(sid, ids, *watch), daemon=True).start()
+        search = lambda sid, ids=None: threading.Thread(target=watch_first_episode, args=(sid, ids), daemon=True).start()
     if not tvdb_id:
         hit = resolve_via_relations([graphql("query($id:Int){Media(id:$id){id title{romaji english}}}",
                                              {"id": anilist_id})["Media"]], anilist_to_tvdb()).get(anilist_id)
@@ -463,12 +462,11 @@ def anime_add(tvdb_id, anilist_id, season, mode, watch=None):
     return added["title"], "Added. Sonarr is searching for every episode now; downloads start within a few minutes."
 
 
-def watch_first_episode(series_id, episode_ids, user, on_tv, log=print):
-    """Grab the first wanted episode on its own (a single-episode release with enough seeders), have qBittorrent fetch it
-    in order, and start it on the TV if asked; then search the rest. Anything that goes wrong just leaves the normal
-    search to it."""
+def watch_first_episode(series_id, episode_ids, log=print):
+    """Grab the first wanted episode on its own (a single-episode release with enough seeders) and have qBittorrent
+    fetch it first, in order, so it's playable within minutes; then search the rest. Nothing starts playing by itself.
+    Anything that goes wrong just leaves the normal search to it."""
     from aniserver.media import pick_for_watching           # imported here: media imports this module
-    from aniserver.streaming import watch_now
     first = None
     try:
         for _ in range(20):                                   # a just-added show needs a moment for its episode list
@@ -493,19 +491,8 @@ def watch_first_episode(series_id, episode_ids, user, on_tv, log=print):
             q = [x for x in sonarr("GET", f"/queue?seriesIds={series_id}&pageSize=200")["records"]
                  if x.get("episodeId") == first["id"] and x.get("downloadId")]
             if q:
-                h = q[0]["downloadId"].lower()
-                if on_tv:
-                    watch_now(h, user)
-                else:                                         # in order from the start, ahead of everything else
-                    t = next(iter(qbit(f"/torrents/info?hashes={h}") or []), {})
-                    if not t.get("seq_dl"):                   # toggles: only flip what's still off
-                        qbit("/torrents/toggleSequentialDownload", {"hashes": h})
-                    if not t.get("f_l_piece_prio"):
-                        qbit("/torrents/toggleFirstLastPiecePrio", {"hashes": h})
-                    try:
-                        qbit("/torrents/topPrio", {"hashes": h})
-                    except Exception:
-                        pass                                  # queueing is off: nothing is waiting in front of it anyway
+                h = q[0]["downloadId"]
+                download_first(h)
                 log(f"watch first: {rel['title']}")
                 return
             time.sleep(3)

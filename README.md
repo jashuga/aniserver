@@ -17,8 +17,8 @@ and Kodi, running on one Ubuntu machine.
 - **A player that adapts to the connection**: direct play at home, the original repackaged, or a GPU-encoded quality
   ladder away from home, with full-quality anime subtitles (ASS, the release's own fonts) in the browser.
 - **Movies and TV too**: a Movies & TV page searches TMDB/TVDB through Radarr and Sonarr, shows what's trending and
-  popular, and adds them with their own 1080p quality rules and folders. **Add & watch now** starts a movie on the TV
-  while it downloads. Regular TV downloads whole seasons at a time, like anime batches.
+  popular, and adds them with their own 1080p quality rules and folders. **Add & watch** (movies and anime) downloads the
+  movie or first episode first, from a well-seeded release, so it's playable within minutes; nothing starts by itself. Regular TV downloads whole seasons at a time, like anime batches.
 - **A Server page for the owner**: services with restart buttons, drive space (and a mount button if the USB drive
   comes loose), stuck downloads with one-click replacement, and what the watchdog did lately.
 - **Watch on the TV while it downloads**, resume anywhere, skip openings, next episode, Continue on TV.

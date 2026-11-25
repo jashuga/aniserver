@@ -61,7 +61,7 @@ class AddingTitles(unittest.TestCase):
 
     def test_a_movie_goes_to_the_movies_folder_and_add_and_watch_hands_it_to_the_tv(self):
         radarr = FakeArr(MOVIE)
-        with Patch(radarr=radarr, TV=True):
+        with Patch(radarr=radarr, TV=False):                    # no TV needed: it's only downloaded first
             media.add_movie(438631, "alice")
             media.add_movie(438631, "alice", watch=True)
         plain, watch = radarr.added
@@ -89,7 +89,7 @@ class AddingTitles(unittest.TestCase):
 
 
 class WatchingWhileDownloading(unittest.TestCase):
-    def test_the_picked_release_is_grabbed_and_its_download_handed_to_the_tv(self):
+    def test_the_picked_release_is_grabbed_and_downloaded_first(self):
         calls, started = [], []
 
         def radarr(method, path, body=None, timeout=60):
@@ -102,9 +102,9 @@ class WatchingWhileDownloading(unittest.TestCase):
             if path.startswith("/queue?"):
                 return {"records": [{"movieId": 99, "downloadId": "OTHER"}, {"movieId": 42, "downloadId": "ABC123"}]}
             raise AssertionError(path)
-        with Patch(radarr=radarr, watch_now=lambda h, user: started.append((h, user))):
+        with Patch(radarr=radarr, download_first=lambda h: started.append(h)):
             media.watch_while_downloading(42, "alice", log=lambda m: None)
-        self.assertEqual(started, [("ABC123", "alice")])          # its own download, not another movie's
+        self.assertEqual(started, ["ABC123"])                    # its own download, not another movie's
 
     def test_nothing_acceptable_leaves_it_to_radarrs_own_search(self):
         commands = []
@@ -116,7 +116,7 @@ class WatchingWhileDownloading(unittest.TestCase):
                 commands.append(body)
                 return {}
             raise AssertionError(path)
-        with Patch(radarr=radarr, watch_now=lambda h, user: self.fail("nothing to watch")):
+        with Patch(radarr=radarr, download_first=lambda h: self.fail("nothing to watch")):
             media.watch_while_downloading(42, "alice", log=lambda m: None)
         self.assertEqual(commands, [{"name": "MoviesSearch", "movieIds": [42]}])
 
@@ -140,8 +140,8 @@ class WatchingAnimeFirstEpisode(unittest.TestCase):
            {"id": 12, "seasonNumber": 1, "episodeNumber": 2, "monitored": True, "airDateUtc": "2020-01-08T00:00:00Z"},
            {"id": 13, "seasonNumber": 1, "episodeNumber": 3, "monitored": True, "airDateUtc": "2099-01-01T00:00:00Z"}]
 
-    def run_it(self, releases, on_tv):
-        calls, searched, tv, qb = [], [], [], []
+    def run_it(self, releases):
+        calls, searched, first = [], [], []
 
         def sonarr(method, path, body=None, timeout=60):
             calls.append((method, path.split("?")[0], body))
@@ -155,24 +155,21 @@ class WatchingAnimeFirstEpisode(unittest.TestCase):
                 return {"records": [{"episodeId": 11, "downloadId": "ABC"}]}
             raise AssertionError(path)
         with Patch(sonarr=sonarr, search_later=lambda sid, ids=None: searched.append((sid, ids)),
-                   watch_now=lambda h, user: tv.append((h, user)), qbit=lambda path, data=None, **k: qb.append(path) or []):
-            app.watch_first_episode(7, None, "alice", on_tv, log=lambda m: None)
-        return calls, searched, tv, qb
+                   download_first=first.append, watch_now=lambda *a: self.fail("nothing starts playing by itself")):
+            app.watch_first_episode(7, None, log=lambda m: None)
+        return calls, searched, first
 
     def test_episode_one_is_grabbed_alone_then_the_rest_is_searched(self):
         rel = lambda title, seeders, full=False, eps=(1,): {"title": title, "seeders": seeders, "approved": True, "protocol": "torrent",
                                                             "fullSeason": full, "episodeNumbers": list(eps), "guid": title, "indexerId": 1}
-        calls, searched, tv, qb = self.run_it([rel("batch", 500, full=True), rel("ep1", 40)], on_tv=True)
+        calls, searched, first = self.run_it([rel("batch", 500, full=True), rel("ep1", 40)])
         self.assertIn(("GET", "/release", None), calls)
         self.assertIn(("POST", "/release", {"guid": "ep1", "indexerId": 1}), calls)       # the single episode, not the batch
-        self.assertEqual((tv, searched), ([("abc", "alice")], [(7, None)]))
-        calls, searched, tv, qb = self.run_it([rel("ep1", 40)], on_tv=False)             # away: fetched in order, played here
-        self.assertEqual(tv, [])
-        self.assertIn("/torrents/toggleSequentialDownload", qb)
+        self.assertEqual((first, searched), (["ABC"], [(7, None)]))
 
     def test_no_single_episode_release_leaves_it_to_the_normal_search(self):
-        calls, searched, tv, qb = self.run_it([{"title": "batch", "seeders": 9, "approved": True, "protocol": "torrent",
-                                                 "fullSeason": True}], on_tv=True)
+        calls, searched, first = self.run_it([{"title": "batch", "seeders": 9, "approved": True, "protocol": "torrent",
+                                               "fullSeason": True}])
         self.assertNotIn("POST", [m for m, _, _ in calls])
         self.assertEqual(searched, [(7, None)])
 

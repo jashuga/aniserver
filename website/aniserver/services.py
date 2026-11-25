@@ -121,6 +121,21 @@ def qbit_live():
     return _QBIT_LIVE["v"]
 
 
+def download_first(torrent_hash):
+    """Have qBittorrent fetch this download in order from the start, ahead of everything else ("Add & watch": it's
+    playable soonest, from the TV or the website, whenever you want)."""
+    h = torrent_hash.lower()
+    t = next(iter(qbit(f"/torrents/info?hashes={h}") or []), {})
+    if not t.get("seq_dl"):                           # toggles: only flip what's still off
+        qbit("/torrents/toggleSequentialDownload", {"hashes": h})
+    if not t.get("f_l_piece_prio"):
+        qbit("/torrents/toggleFirstLastPiecePrio", {"hashes": h})
+    try:
+        qbit("/torrents/topPrio", {"hashes": h})
+    except Exception:
+        pass                                          # queueing is off: nothing is waiting in front of it anyway
+
+
 def kodi_rpc(method, params=None):
     offline_check("Kodi")
     if not KODI:
