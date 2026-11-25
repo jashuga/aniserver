@@ -24,25 +24,11 @@ from aniserver.auth import PENDING, REMOTE_COOKIE, REMOTE_SESSION_DAYS, TRUST_CO
 from aniserver.anime import anime_add, anime_search, movie_add, title_of, trending, trending_cached
 from aniserver import media
 from aniserver.manga import follow, follows, grab, parse_release, search, unfollow
-from aniserver.library import jellyfin_base, _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
+from aniserver.library import _download_names, _downloads_by_key, continue_watching, delete_title, download_progress, downloads_by_key, hub_cards, human_eta, kodi_play, latest_episodes, library, live_downloads, media_path, next_up, nextup_items, play_target, provider_key, resume_items, series_episodes, signature_ok, upcoming_episodes
 from aniserver import ops, passkeys
 from aniserver.artwork import apply_anime_artwork, artwork_language, cached_image, set_user_artwork, user_artwork
 from aniserver.streaming import watch_now, HEX32, LADDER, LADDER_HEVC, PLAYER_LOG, RATES_CACHE, REMOTE_MAX_BITRATE, STREAM_PATH, _FILE_PATHS, _FONT_NAMES, _RATES, abr_master, bitrate_profile, item_fonts, jellyfin_master_query, playinfo, save_progress, set_played, stop_transcode, stream_token, stream_token_ok, tokenize_playlist, tv_play_item
 from aniserver.pages import VIEWER, shown, ASSET_FILES, ICON_TAGS, IMG_CACHE_BYTES, media_details_html, media_poster_html, IMG_WIDTHS, PLAY_OVERLAY, SEARCH_ICON, _IMG_CACHE, _IMG_LOCK, asset, backdrop_of, delete_button, details_html, ecard, ep_code, esc, fmt_runtime, fmt_size, icon, jump_icon, logo_of, meta_bits, meta_html, msg_html, page, pcard, poster_html, poster_of_item, progress_pct, row_html, thumb_of, time_left, tv_button, year_span
-
-_JF_SERVER_ID = []
-
-
-def jellyfin_web_link(base, iid):
-    """This title's page in Jellyfin's own web app: Play opens there (its player starts and seeks instantly; this
-    site's own player is still at /watch/<id>?player=site)."""
-    if not _JF_SERVER_ID:
-        try:
-            _JF_SERVER_ID.append(jellyfin("/System/Info/Public")["Id"])
-        except Exception:
-            return f"{base}/web/#/details?id={iid}"
-    return f"{base}/web/#/details?id={iid}&serverId={_JF_SERVER_ID[0]}"
-
 
 # ---------- HTTP ----------
 
@@ -183,8 +169,6 @@ class Handler(BaseHTTPRequestHandler):
                 if kind == "play":
                     target, _ = play_target(jf_uid(self.user), iid)
                     return self.redirect(f"/watch/{target['Id']}" if target else f"/title/{iid}")
-                if kind == "watch" and "player=site" not in (url.query or ""):
-                    return self.redirect(jellyfin_web_link(jellyfin_base(self.host(), self.public()), iid))
                 if kind == "watch":
                     return self.send(self.watch_page(iid, qs), headers={"Cache-Control": "no-store"})
                 body = self.title_page(iid, qs)

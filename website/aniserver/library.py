@@ -115,8 +115,7 @@ SEARCH_COMMANDS = ("SeriesSearch", "SeasonSearch", "EpisodeSearch", "MissingEpis
 
 
 def jellyfin_base(host, public):
-    """Jellyfin's web app as this visitor reaches it: its public address when there is one, else port 8096 here."""
-    return f"https://{CONF['watch_host']}" if CONF.get("watch_host") else f"http://{host.split(':')[0]}:8096"
+    return f"https://{CONF['watch_host']}" if public else f"http://{host}:8096"
 
 
 def media_path(path):
