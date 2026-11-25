@@ -1,52 +1,53 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 — 2026-11-25
 
-- Removed the old Downloads page (its script, styles and /api/downloads) and "Watch now on TV" while downloading
-  (/api/watchnow); nothing linked to them any more.
-- **Add & watch for anime and movies**: adds it and downloads the first episode (a well-seeded single-episode
-  release) or the movie first, in order, so it's playable within minutes, then searches the rest as usual. It no
-  longer starts anything on the TV by itself: play it wherever you like.
-- **Downloading now** replaces the Downloads tab: a compact list at the top of My shows (progress, speed, time left,
-  and downloads that can't be added, with a link to fix them on the Server page). /downloads redirects there.
-- **Unfileable downloads are cleared**: a finished download Sonarr/Radarr leaves "pending" with a warning (e.g. a
-  repack that isn't better than the episode you have) is now treated as stuck: listed on the Server page with a
-  Remove button, and removed and blocklisted by the watchdog after 20 minutes.
-- **Play from search**: anime, movies and shows already downloaded get Play (and Episodes) buttons in their search
-  details instead of just "In library".
-- **Search My shows**: a box on My shows filters the cards as you type; the page's live refresh waits while you search.
-- The play button on episode thumbnails is centred (the icon was nudged right twice).
-- **Smoother adaptive player away from home**: it now keeps one quality per stream and drops a step only after real
-  stalls. hls.js used to switch on its own every few seconds (it timed segments arriving at encode speed), and every
-  switch started a new conversion on the server while the old ones kept running, so the player buffered constantly.
-  Skips now take about 2 s and the buffer fills about 2.5× faster than real time.
-- **Empty recycle bin** (Server page): deletes Sonarr/Radarr's recycle bin now instead of after 14 days, and stops
-  seeding torrents whose files only live on in the bin (an upgraded show's old copies), so the space is really freed.
-- **Watchdog**: downloads that haven't received anything for a day are removed, blocklisted and searched again;
-  LimeTorrents (setting `regular_tv_only_indexers`) is only used for regular TV, through a `regular-tv` tag in Sonarr
-  that every non-anime show gets.
-- **Cleaner look**: on phones the menu is a tab bar along the bottom (it used to run off the screen); Manga and
-  Followed manga are one tab with Search / Followed inside; the owner's Server page is an icon by the avatar. My Shows
-  shows how many shows and movies there are, titles aren't underlined, and Delete is a small icon in the corner.
-  Account and Server lay their cards out in two columns on wide screens; Server shows each service as a tile with a
-  status light and an "All running" / "N down" summary. One Jellyfin password card instead of two.
-- **Server page** (owner only, in the nav): every service up/down with a **Restart** button, the media drives
-  (connected, space left, a **Mount** button when one isn't, what the recycle bin holds), downloads that haven't
-  received anything for 6 hours with **Remove & find another** (blocklists that release; Sonarr/Radarr search again),
-  and the watchdog's latest actions and alerts.
-- **Forgot your Jellyfin password?** (owner, Account page): approve a Jellyfin app's Quick Connect code, or set a new
-  password without the old one, since signing in to the site already proved who you are.
-- **Watchdog**: a phone alert when a media drive in fstab isn't mounted; TV entries for files Sonarr/Radarr replaced
-  with a better copy are removed after their watched state is copied over.
+Movies and regular TV, a Server page for fixing things without a terminal, a smoother player away from home.
+
+### New
+
 - **Movies & TV page** for everything that isn't anime: search (Radarr/Sonarr's TMDB/TVDB lookup, the better-known
   kind first), Trending / Popular / "because of what's in the library" rows from Radarr's discover lists (no TMDB key),
-  and anime found there points to the Anime page. Movies: **Add** or **Add & watch now on TV** (picks a release with
-  enough seeders to stay ahead of playback). Shows: all seasons, the latest season, or only new episodes.
-- **Regular TV gets season packs first**: the batch-first search asks for "Title S02" in Prowlarr's TV categories.
-- **Own folders, profiles and libraries**: `film_folders` / `tv_folders` (Movies, TV Shows), profiles `Movies 1080p`
-  (TRaSH HD Bluray + WEB) and `TV 1080p` (TRaSH WEB-1080p plus Blu-ray 1080p, 720p as a last resort) in
-  `recyclarr/recyclarr.yml`; the wizard creates the folders and Jellyfin libraries. The Sonarr add hook puts regular
-  shows in TV Shows with TV 1080p.
+  and anime found there points to the Anime page. Shows: all seasons, the latest season, or only new episodes.
+- **Own folders, profiles and libraries** for regular movies and TV: `film_folders` / `tv_folders` (Movies, TV Shows),
+  profiles `Movies 1080p` (TRaSH HD Bluray + WEB) and `TV 1080p` (TRaSH WEB-1080p plus Blu-ray 1080p, 720p as a last
+  resort) in `recyclarr/recyclarr.yml`; the wizard creates the folders and Jellyfin libraries. Regular TV gets season
+  packs first ("Title S02" in Prowlarr's TV categories).
+- **Add & watch** (anime and movies): adds it and downloads the first episode (a well-seeded single-episode release)
+  or the movie first, in order and ahead of everything else, so it's ready to play within minutes; then the rest is
+  searched as usual. Nothing starts playing by itself.
+- **Server page** (owner only, an icon by the avatar): every service up/down with a **Restart** button; the media
+  drives (connected, space left, a **Mount** button when one isn't); **Empty recycle bin** (also stops seeding
+  torrents whose files only live on in the bin, so the space is really freed); stuck downloads with **Remove & find
+  another**, or **Remove** for a finished one that can't be added; the watchdog's latest actions and alerts.
+- **Forgot your Jellyfin password?** (owner, Account page): approve a Jellyfin app's Quick Connect code, or set a new
+  password without the old one, since signing in to the site already proved who you are.
+- **My Shows**: a search box, a **Downloading now** list at the top (progress, speed, time left, and downloads that
+  can't be added), and a count of shows and movies. It replaces the Downloads tab; `/downloads` redirects there.
+- **Play from search**: anime, movies and shows you already have get Play (and Episodes) in their search details.
+
+### Better
+
+- **Smoother adaptive player away from home**: it keeps one quality per stream and steps down only after real stalls.
+  hls.js used to switch on its own every few seconds (it timed segments arriving at encode speed), and every switch
+  started a new conversion on the server while the old ones kept running, so it buffered constantly. Skips now take
+  about 2 s and the buffer fills about 2.5× faster than real time.
+- **Cleaner look**: on phones the menu is a tab bar along the bottom; Manga and Followed manga are one tab; Account and
+  Server lay their cards out in two columns on wide screens; Delete on My Shows is a small icon; one Jellyfin
+  password card instead of two; the play icon on thumbnails is centred.
+- **Watchdog**:
+  - a phone alert when a media drive in fstab isn't mounted;
+  - downloads that haven't received anything for a day are removed, blocklisted and searched again;
+  - a finished download Sonarr/Radarr leaves "pending" with a warning (e.g. a repack that isn't better than the
+    episode you have) is removed and blocklisted after 20 minutes;
+  - TV entries for files Sonarr/Radarr replaced with a better copy are removed after their watched state is copied;
+  - LimeTorrents (setting `regular_tv_only_indexers`) is only used for regular TV, through a `regular-tv` tag.
+- **Repacks**: Sonarr and Radarr no longer prefer repacks over the quality rules (`propers_and_repacks:
+  do_not_prefer` in the Recyclarr config), so they stop grabbing repacks worse than what's already there.
+
+### Removed
+
+- The old Downloads page and "Watch now on TV" while downloading (`/api/downloads`, `/api/watchnow`).
 
 ## v1.1.0 — 2026-11-03
 

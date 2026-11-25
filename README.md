@@ -6,24 +6,32 @@ A home anime server: new episodes download by themselves, play on the living-roo
 **aniserver**, a Netflix-style website with its own adaptive player. Built on Sonarr, Radarr, qBittorrent, Jellyfin
 and Kodi, running on one Ubuntu machine.
 
-| Show page | Browse | Downloads |
-|---|---|---|
-| ![Show page](docs/show.png) | ![Browse](docs/browse.png) | ![Downloads](docs/downloads.png) |
+| Home | Show page |
+|---|---|
+| ![Home](docs/home.png) | ![Show page](docs/show.png) |
+| **Movies & TV** | **My Shows** |
+| ![Movies & TV](docs/movies.png) | ![My Shows](docs/myshows.png) |
 
 ## Features
 
 - **Add anime by the name people use** ("jjk", "re zero"). Seasons are matched to TVDB by air date, so split cours,
   continuing seasons and Netflix-first releases get the right episodes.
-- **A player that adapts to the connection**: direct play at home, the original repackaged, or a GPU-encoded quality
-  ladder away from home, with full-quality anime subtitles (ASS, the release's own fonts) in the browser.
+- **A player that adapts to the connection**: direct play at home, the original repackaged, or GPU-encoded away from
+  home (one quality per stream, stepping down only after real stalls), with full-quality anime subtitles (ASS, the
+  release's own fonts) in the browser.
 - **Movies and TV too**: a Movies & TV page searches TMDB/TVDB through Radarr and Sonarr, shows what's trending and
-  popular, and adds them with their own 1080p quality rules and folders. **Add & watch** (movies and anime) downloads the
-  movie or first episode first, from a well-seeded release, so it's playable within minutes; nothing starts by itself. Regular TV downloads whole seasons at a time, like anime batches.
+  popular, and adds them with their own 1080p quality rules and folders. Regular TV downloads whole seasons at a time,
+  like anime batches.
+- **Add & watch** (anime and movies): the first episode or the movie downloads first, from a well-seeded release, so
+  it's ready to play within minutes; the rest follows. Search results you already have get a Play button.
+- **My Shows**: everything you've added, searchable, with what's downloading right now at the top.
 - **A Server page for the owner**: services with restart buttons, drive space (and a mount button if the USB drive
-  comes loose), stuck downloads with one-click replacement, and what the watchdog did lately.
-- **Watch on the TV while it downloads**, resume anywhere, skip openings, next episode, Continue on TV.
+  comes loose), an empty-recycle-bin button, stuck downloads with one-click replacement, and what the watchdog did
+  lately. Forgot your Jellyfin password? Reset it or approve a Quick Connect code from the Account page.
+- **Resume anywhere**, skip openings, next episode, Play on TV and Continue on TV.
 - **A safety net** that fixes or reports what usually breaks: shows left with nothing to download, stuck or misread
-  imports, the TV missing episodes or matching the wrong show, services that stop answering.
+  imports, dead or fake downloads (replaced after a day), the TV missing episodes or keeping replaced ones, a media
+  drive that came unplugged, services that stop answering.
 - **Anime artwork in Japanese or English** (posters, title logos, romaji titles), each person's own pick.
 - **Accounts**: one login per person (password + authenticator code once per browser, or a passkey such as
   Windows Hello), each with their own history; the TV keeps its own.
