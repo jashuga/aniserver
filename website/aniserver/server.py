@@ -310,13 +310,11 @@ class Handler(BaseHTTPRequestHandler):
                 kodi_play(f["p"])
                 note = f"Playing on the TV: {f.get('label') or os.path.basename(f['p'])}"
             elif self.path == "/anime/add":
-                mode, watch = f.get("mode", "all"), False
-                if mode == "watch":       # add it like the main button would, and get the first episode first
-                    mode, watch = ("season" if f.get("season") else "all"), True
+                mode = f.get("mode", "all")
+                if mode == "watch":       # the old "Add & watch" button, from a page opened before it went away
+                    mode = "season" if f.get("season") else "all"
                 title, result = anime_add(int(f["tvdb"]) if f.get("tvdb") else None, int(f.get("anilist") or 0),
-                                          int(f["season"]) if f.get("season") else None, mode, watch)
-                if watch:
-                    result += " The first episode downloads first: it's usually ready to play within a few minutes."
+                                          int(f["season"]) if f.get("season") else None, mode, watch=True)
                 return self.redirect("/shows?" + urllib.parse.urlencode({"ok": f"{title}: {result}", "focus": title}) + "#top")
             elif self.path == "/anime/addmovie":
                 title, result = movie_add(int(f["tmdb"]) if f.get("tmdb") else None, int(f.get("anilist") or 0))

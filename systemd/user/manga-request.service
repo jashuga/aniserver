@@ -3,6 +3,7 @@ Description=aniserver website (streaming, adding shows, manga)
 After=network-online.target
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 %h/aniserver/website/app.py
 Restart=on-failure
 

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- "Add & watch" is now **Add · ready soon**: it never started playback, so the old name was misleading.
+- **One Add button.** "Add & watch" is gone: every anime add now fetches the first episode on its own first when a
+  well-seeded single-episode release exists (new and airing shows), and released movies always get a well-seeded copy
+  first. Older shows that only come as season batches still arrive when the batch finishes.
+- The website's log is written immediately (it was buffered, so messages were lost on restart).
 
 ## v1.2.0 — 2026-11-25
 

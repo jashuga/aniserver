@@ -261,7 +261,7 @@ def details_html(c, n, back, host):
         note = "" if c["tmdb"] else '<span class="note">Not in the anime ID list yet; it will be matched by title.</span>'
         actions = (f'<form method="post" action="/anime/addmovie" data-busy><input type="hidden" name="tmdb" value="{c["tmdb"] or ""}">'
                    f'<input type="hidden" name="anilist" value="{m["id"]}"><input type="hidden" name="back" value="{html.escape(back)}">'
-                   f'<button>Add movie</button></form>{note}')
+                   f'<button>Add</button></form>{note}')
     elif c["state"] == "movie_done":
         actions = (play_links(c.get("jf"), True) or '<span class="chip ok">In library</span>') + \
             f'<span class="muted">Downloaded</span>{radarr_link}'
@@ -283,9 +283,6 @@ def details_html(c, n, back, host):
         else:
             buttons.append('<button name="mode" value="all">Add all seasons</button>')
         buttons.append('<button class="ghost" name="mode" value="future">Only new episodes</button>')
-        if m.get("status") != "NOT_YET_RELEASED":           # something has aired: get episode 1 first
-            buttons.insert(0, f'<button name="mode" value="watch">Add · ready soon</button>')
-            buttons[1] = buttons[1].replace('<button name=', '<button class="ghost" name=', 1)
         note = "" if c["tvdb"] else '<span class="note">Not in the anime ID list yet; it will be matched by title.</span>'
         actions = f'<form method="post" action="/anime/add" data-busy>{hidden}{"".join(buttons)}</form>{note}'
     return f"""<template id="t{n}"><div class="banner" style="{banner}"><button class="close" type="button" aria-label="Close">✕</button></div>
@@ -327,10 +324,9 @@ def media_details_html(c, n, back):
     elif c["state"] == "added":
         actions = f'<span class="chip warn">Added</span><span class="muted">{"Searching / downloading" if c["kind"] == "movie" else "Waiting for episodes"}</span>'
     elif c["kind"] == "movie":
-        watch = (f'<button name="watch" value="1">Add · ready soon</button>' if c["released"] else "")
         later = "" if c["released"] else '<span class="note">Not out on digital/Blu-ray yet: it downloads as soon as it is.</span>'
-        plain = '<button class="ghost" name="watch" value="0">' if watch else '<button name="watch" value="0">'
-        actions = f'<form method="post" action="/media/addmovie" data-busy>{hidden}{watch}{plain}Add movie</button></form>{later}'
+        add = f'<button name="watch" value="{1 if c["released"] else 0}">Add</button>'   # released: a well-seeded copy, first
+        actions = f'<form method="post" action="/media/addmovie" data-busy>{hidden}{add}</form>{later}'
     else:
         many = c.get("seasons", 0) > 1
         buttons = ['<button name="mode" value="all">Add all seasons</button>' if many else '<button name="mode" value="all">Add show</button>']
