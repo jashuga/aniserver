@@ -78,13 +78,12 @@ class AddingTitles(unittest.TestCase):
         self.assertEqual((title, radarr.added, self.watching), ("Dune", [], []))
         self.assertIn("already", msg)
 
-    def test_watching_while_downloading_prefers_the_best_release_with_enough_seeders(self):
+    def test_adding_takes_the_best_release_however_few_seeders_it_has(self):
         rel = lambda title, seeders, approved=True: {"title": title, "seeders": seeders, "approved": approved, "protocol": "torrent"}
         best_quality_few_seeds = rel("Dune.2021.1080p.BluRay.x264-GRP", 3)
         good = rel("Dune.2021.1080p.WEB-DL.DDP5.1-GRP", 80)
         rejected = rel("Dune.2021.CAM", 900, approved=False)
-        self.assertEqual(media.pick_for_watching([rejected, best_quality_few_seeds, good])["title"], good["title"])
-        self.assertEqual(media.pick_for_watching([best_quality_few_seeds, rel("x", 1)])["title"], best_quality_few_seeds["title"])
+        self.assertEqual(media.pick_for_watching([rejected, best_quality_few_seeds, good])["title"], best_quality_few_seeds["title"])
         self.assertIsNone(media.pick_for_watching([rejected]))
 
 

@@ -325,7 +325,7 @@ def media_details_html(c, n, back):
         actions = f'<span class="chip warn">Added</span><span class="muted">{"Searching / downloading" if c["kind"] == "movie" else "Waiting for episodes"}</span>'
     elif c["kind"] == "movie":
         later = "" if c["released"] else '<span class="note">Not out on digital/Blu-ray yet: it downloads as soon as it is.</span>'
-        add = f'<button name="watch" value="{1 if c["released"] else 0}">Add</button>'   # released: a well-seeded copy, first
+        add = f'<button name="watch" value="{1 if c["released"] else 0}">Add</button>'   # released: the best copy, downloaded first
         actions = f'<form method="post" action="/media/addmovie" data-busy>{hidden}{add}</form>{later}'
     else:
         many = c.get("seasons", 0) > 1

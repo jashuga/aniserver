@@ -22,7 +22,7 @@ and Kodi, running on one Ubuntu machine.
 - **Movies and TV too**: a Movies & TV page searches TMDB/TVDB through Radarr and Sonarr, shows what's trending and
   popular, and adds them with their own 1080p quality rules and folders. Regular TV downloads whole seasons at a time,
   like anime batches.
-- **Adding gets you watching fast** (anime and movies): when a well-seeded single-episode release exists, episode 1
+- **Adding gets you watching fast** (anime and movies): when single-episode releases exist, episode 1
   (or the movie) downloads first so it's ready within minutes; the rest follows. Search results you already have get a
   Play button.
 - **My Shows**: everything you've added, searchable, with what's downloading right now at the top.

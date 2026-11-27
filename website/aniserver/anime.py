@@ -463,7 +463,7 @@ def anime_add(tvdb_id, anilist_id, season, mode, watch=False):
 
 
 def watch_first_episode(series_id, episode_ids, log=print):
-    """Grab the first wanted episode on its own (a single-episode release with enough seeders) and have qBittorrent
+    """Grab the first wanted episode on its own (the best single-episode release) and have qBittorrent
     fetch it first, in order, so it's playable within minutes; then search the rest. Nothing starts playing by itself.
     Anything that goes wrong just leaves the normal search to it."""
     from aniserver.media import pick_for_watching           # imported here: media imports this module

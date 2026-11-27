@@ -14,7 +14,6 @@ from aniserver.services import download_first, radarr, sonarr, swr
 
 FILM_PROFILE = CONF.get("film_profile", "Movies 1080p")       # TRaSH HD Bluray + WEB (via Recyclarr)
 SHOW_PROFILE = CONF.get("show_profile", "TV 1080p")           # TRaSH WEB-1080p + Blu-ray 1080p (via Recyclarr)
-WATCH_SEEDERS = 15        # "Add & watch now" wants a well-seeded release, so playback doesn't outrun the download
 QUEUE_WAIT = 60           # seconds for a grabbed release to show up in Radarr's queue
 TITLE_RESULTS = 12              # per kind (movies, shows) in search results
 
@@ -117,7 +116,7 @@ def discover_cached():
 
 
 def add_movie(tmdb_id, user, watch=False):
-    """Add a movie with the regular profile. watch=True picks a well-seeded release and has it downloaded first, in
+    """Add a movie with the regular profile. watch=True picks the best release and has it downloaded first, in
     order, so it's playable within minutes (in the background: the release search takes a little while).
     Returns (title, message)."""
     existing = next((x for x in radarr("GET", "/movie") if x["tmdbId"] == tmdb_id), None)
@@ -131,20 +130,18 @@ def add_movie(tmdb_id, user, watch=False):
     added = radarr("POST", "/movie", mv)
     if watch:
         threading.Thread(target=watch_while_downloading, args=(added["id"], user), daemon=True).start()
-        return added["title"], "Added. A well-seeded copy downloads first: it's usually ready to play within a few minutes."
+        return added["title"], "Added. The best copy downloads first, ahead of everything else."
     return added["title"], "Added. Radarr is downloading it now in the best quality it finds."
 
 
 def pick_for_watching(releases):
-    """The best release Radarr accepts that has enough seeders to stay ahead of playback (else the best-seeded one).
-    Radarr lists them best first."""
-    ok = [r for r in releases if r.get("approved") and r.get("protocol") == "torrent"]
-    return next((r for r in ok if (r.get("seeders") or 0) >= WATCH_SEEDERS), None) or max(
-        ok, key=lambda r: r.get("seeders") or 0, default=None)
+    """The best torrent release Radarr/Sonarr accepts (they list them best first): adding never trades quality for
+    speed, it only has that release downloaded first."""
+    return next((r for r in releases if r.get("approved") and r.get("protocol") == "torrent"), None)
 
 
 def watch_while_downloading(movie_id, user, log=print):
-    """Grab the best well-seeded release and have it downloaded first, in order."""
+    """Grab the best release and have it downloaded first, in order."""
     try:
         rel = pick_for_watching(radarr("GET", f"/release?movieId={movie_id}", timeout=180) or [])
         if not rel:

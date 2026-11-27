@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- **One Add button.** "Add & watch" is gone: every anime add now fetches the first episode on its own first when a
-  well-seeded single-episode release exists (new and airing shows), and released movies always get a well-seeded copy
-  first. Older shows that only come as season batches still arrive when the batch finishes.
+- **One Add button.** "Add & watch" is gone: every anime add now fetches the first episode on its own first when
+  single-episode releases exist (new and airing shows), and released movies are downloaded first. It always takes the
+  best release; it used to settle for a lower-quality one with more seeders. Older shows that only come as season batches still arrive when the batch finishes.
 - The website's log is written immediately (it was buffered, so messages were lost on restart).
 
 ## v1.2.0 — 2026-11-25
