@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- "Add & watch" is now **Add · ready soon**: it never started playback, so the old name was misleading.
+
 ## v1.2.0 — 2026-11-25
 
 Movies and regular TV, a Server page for fixing things without a terminal, a smoother player away from home.
